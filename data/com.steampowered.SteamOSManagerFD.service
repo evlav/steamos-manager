@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=com.steampowered.SteamOSManagerFD
+Exec=/usr/lib/steamos-managerfd
+User=root
+SystemdService=steamosmanagerfd.service

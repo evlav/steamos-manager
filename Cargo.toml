@@ -6,7 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+dbus = { version = "0.9.7", features = ["stdfd"] }
+dbus-crossroads = "0.5.2"
+dbus-tokio = "0.7.6"
 dyn = "0.0.0"
+futures = "0.3.29"
 serde = { version = "1.0.188", features = ["derive"] }
 tokio = { version = "1.33.0", features = ["fs", "process", "io-std", "rt-multi-thread", "macros"] }
 zbus = { version = "3.14.1", features = ["tokio"] }

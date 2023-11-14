@@ -23,8 +23,9 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-use std::{ffi::OsStr};
+use std::{ffi::OsStr, os::fd::{FromRawFd, AsRawFd}};
 use tokio::{process::Command, fs::File, io::AsyncWriteExt};
+use zbus::zvariant::OwnedFd;
 use zbus_macros::dbus_interface;
 pub struct SMManager {
 }
@@ -234,6 +235,21 @@ impl SMManager {
                 }
             },
             Err(message) => { println!("Error writing to power1_cap file: {message}"); false }
+        }
+    }
+
+    fn get_als_integration_time_file_descriptor(
+        &self) -> Result<zbus::zvariant::OwnedFd, zbus::fdo::Error> {
+        // Get the file descriptor for the als integration time sysfs path
+        // /sys/devices/platform/AMDI0010:00/i2c-0/i2c-PRP0001:01/iio:device0/in_illuminance_integration_time
+        // Return -1 on error
+        let result = std::fs::File::create("/sys/devices/platform/AMDI0010:00/i2c-0/i2c-PRP0001:01/iio:device0/in_illuminance_integration_time");
+        match result {
+            Ok(f) => unsafe 
+            { let fd: OwnedFd = OwnedFd::from_raw_fd(f.as_raw_fd());
+                Ok(fd)
+            },
+            Err(message) => { println!("Error opening sysfs file for giving file descriptor {message}"); Err(zbus::fdo::Error::IOError(message.to_string())) }
         }
     }
 

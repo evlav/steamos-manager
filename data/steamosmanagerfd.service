@@ -1,0 +1,7 @@
+[Unit]
+Description=SteamOS Manager Daemon that deals with File Descriptors
+
+[Service]
+Type=dbus
+BusName=com.steampowered.SteamOSManagerFD
+ExecStart=/usr/lib/steamos-managerfd
