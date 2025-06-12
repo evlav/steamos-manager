@@ -23,7 +23,8 @@ use zbus::zvariant::ObjectPath;
 use zbus::Address;
 use zbus_xml::{Method, Node, Property, Signal};
 
-use crate::platform::{DeviceConfig, PlatformConfig};
+use crate::hardware::DeviceConfig;
+use crate::platform::PlatformConfig;
 
 thread_local! {
     static TEST: RefCell<Option<Rc<Test>>> = const { RefCell::new(None) };

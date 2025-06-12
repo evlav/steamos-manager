@@ -21,10 +21,10 @@ use crate::daemon::user::Command;
 use crate::daemon::DaemonCommand;
 use crate::error::{to_zbus_error, to_zbus_fdo_error, zbus_to_zbus_fdo};
 use crate::hardware::{
-    device_type, device_variant, steam_deck_variant, DeviceType, SteamDeckVariant,
+    device_config, device_type, device_variant, steam_deck_variant, SteamDeckVariant,
 };
 use crate::job::JobManagerCommand;
-use crate::platform::{device_config, platform_config};
+use crate::platform::platform_config;
 use crate::power::{
     get_available_cpu_scaling_governors, get_available_gpu_performance_levels,
     get_available_gpu_power_profiles, get_available_platform_profiles, get_cpu_scaling_governor,
@@ -1040,7 +1040,7 @@ pub(crate) async fn create_interfaces(
     create_device_interfaces(&proxy, object_server, tdp_manager).await?;
     create_platform_interfaces(&proxy, object_server, &system, &job_manager).await?;
 
-    if device_type().await.unwrap_or_default() == DeviceType::SteamDeck {
+    if device_type().await.unwrap_or_default() == "steam_deck" {
         object_server.at(MANAGER_PATH, als).await?;
     }
     if steam_deck_variant().await.unwrap_or_default() == SteamDeckVariant::Galileo {
@@ -1098,11 +1098,12 @@ mod test {
     use crate::daemon::channel;
     use crate::daemon::user::UserContext;
     use crate::hardware::test::fake_model;
-    use crate::hardware::SteamDeckVariant;
+    use crate::hardware::{
+        BatteryChargeLimitConfig, DeviceConfig, DeviceMatch, DmiMatch, PerformanceProfileConfig,
+        RangeConfig, SteamDeckVariant, TdpLimitConfig,
+    };
     use crate::platform::{
-        BatteryChargeLimitConfig, DeviceConfig, FormatDeviceConfig, PerformanceProfileConfig,
-        PlatformConfig, RangeConfig, ResetConfig, ScriptConfig, ServiceConfig, StorageConfig,
-        TdpLimitConfig,
+        FormatDeviceConfig, PlatformConfig, ResetConfig, ScriptConfig, ServiceConfig, StorageConfig,
     };
     use crate::power::TdpLimitingMethod;
     use crate::systemd::test::{MockManager, MockUnit};
@@ -1139,6 +1140,15 @@ mod test {
 
     fn all_device_config() -> Option<DeviceConfig> {
         Some(DeviceConfig {
+            device: vec![DeviceMatch {
+                dmi: Some(DmiMatch {
+                    sys_vendor: String::from("Valve"),
+                    board_name: Some(String::from("Galileo")),
+                    product_name: None,
+                }),
+                device: String::from("steam_deck"),
+                variant: String::from("Galileo"),
+            }],
             tdp_limit: Some(TdpLimitConfig {
                 method: TdpLimitingMethod::GpuHwmon,
                 range: Some(RangeConfig::new(3, 15)),
@@ -1182,6 +1192,7 @@ mod test {
             config.set_test_paths();
         }
 
+        fake_model(SteamDeckVariant::Galileo).await?;
         handle.test.platform_config.replace(platform_config);
         handle.test.device_config.replace(device_config);
         let connection = handle.new_dbus().await?;
@@ -1207,7 +1218,6 @@ mod test {
         write(&exe_path, "").await?;
         set_permissions(&exe_path, PermissionsExt::from_mode(0o700)).await?;
 
-        fake_model(SteamDeckVariant::Galileo).await?;
         handle
             .test
             .process_cb

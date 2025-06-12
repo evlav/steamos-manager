@@ -27,10 +27,9 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, warn};
 use zbus::Connection;
 
-use crate::hardware::{device_type, DeviceType};
+use crate::hardware::{device_config, device_type};
 use crate::manager::root::RootManagerProxy;
 use crate::manager::user::{TdpLimit1, MANAGER_PATH};
-use crate::platform::device_config;
 use crate::Service;
 use crate::{path, write_synced};
 
@@ -246,7 +245,7 @@ pub(crate) async fn get_gpu_power_profile() -> Result<GPUPowerProfile> {
 
 pub(crate) async fn get_available_gpu_power_profiles() -> Result<Vec<(u32, String)>> {
     let contents = read_gpu_sysfs_contents(GPU_POWER_PROFILE_SUFFIX).await?;
-    let deck = device_type().await.unwrap_or_default() == DeviceType::SteamDeck;
+    let deck = device_type().await.unwrap_or_default() == "steam_deck";
 
     let mut map = Vec::new();
     let lines = contents.lines();
@@ -856,10 +855,9 @@ pub(crate) mod test {
     use super::*;
     use crate::error::to_zbus_fdo_error;
     use crate::hardware::test::fake_model;
-    use crate::hardware::SteamDeckVariant;
-    use crate::platform::{
+    use crate::hardware::{
         BatteryChargeLimitConfig, DeviceConfig, FirmwareAttributeConfig, PerformanceProfileConfig,
-        RangeConfig, TdpLimitConfig,
+        RangeConfig, SteamDeckVariant, TdpLimitConfig,
     };
     use crate::{enum_roundtrip, testing};
     use anyhow::anyhow;
