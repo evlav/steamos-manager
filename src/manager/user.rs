@@ -31,7 +31,7 @@ use crate::power::{
     get_gpu_clocks, get_gpu_clocks_range, get_gpu_performance_level, get_gpu_power_profile,
     get_max_charge_level, get_platform_profile, TdpManagerCommand,
 };
-use crate::screenreader::{OrcaManager, ScreenReaderMode};
+use crate::screenreader::{OrcaManager, ScreenReaderAction, ScreenReaderMode};
 use crate::wifi::{
     get_wifi_backend, get_wifi_power_management_state, list_wifi_interfaces, WifiBackend,
 };
@@ -706,6 +706,17 @@ impl ScreenReader0 {
             .await
             .map_err(to_zbus_fdo_error)?;
         self.mode_changed(&ctx).await.map_err(to_zbus_fdo_error)
+    }
+
+    async fn trigger_action(&mut self, a: u32, timestamp: u64) -> fdo::Result<()> {
+        let action = match ScreenReaderAction::try_from(a) {
+            Ok(action) => action,
+            Err(err) => return Err(fdo::Error::InvalidArgs(err.to_string())),
+        };
+        self.screen_reader
+            .trigger_action(action, timestamp)
+            .await
+            .map_err(to_zbus_fdo_error)
     }
 }
 

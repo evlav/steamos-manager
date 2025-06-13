@@ -75,6 +75,22 @@ pub enum ScreenReaderMode {
     Focus = 1,
 }
 
+#[derive(Display, EnumString, PartialEq, Debug, Copy, Clone, TryFromPrimitive)]
+#[strum(serialize_all = "snake_case", ascii_case_insensitive)]
+#[repr(u32)]
+pub enum ScreenReaderAction {
+    StopSpeaking = 0,
+    ReadNextWord = 1,
+    ReadPreviousWord = 2,
+    ReadNextItem = 3,
+    ReadPreviousItem = 4,
+    MoveToNextLandmark = 5,
+    MoveToPreviousLandmark = 6,
+    MoveToNextHeading = 7,
+    MoveToPreviousHeading = 8,
+    ToggleMode = 9,
+}
+
 pub(crate) struct UInputDevice {
     #[cfg(not(test))]
     handle: UInputHandle<OwnedFd>,
@@ -124,8 +140,16 @@ impl UInputDevice {
         ensure!(!self.open, "Cannot reopen uinput handle");
 
         self.handle.set_evbit(EventKind::Key)?;
-        self.handle.set_keybit(Key::Insert)?;
         self.handle.set_keybit(Key::A)?;
+        self.handle.set_keybit(Key::H)?;
+        self.handle.set_keybit(Key::M)?;
+        self.handle.set_keybit(Key::Insert)?;
+        self.handle.set_keybit(Key::LeftCtrl)?;
+        self.handle.set_keybit(Key::LeftShift)?;
+        self.handle.set_keybit(Key::Down)?;
+        self.handle.set_keybit(Key::Left)?;
+        self.handle.set_keybit(Key::Right)?;
+        self.handle.set_keybit(Key::Up)?;
 
         let input_id = InputId {
             bustype: input_linux::sys::BUS_VIRTUAL,
@@ -322,6 +346,77 @@ impl<'dbus> OrcaManager<'dbus> {
         }
         self.mode = mode;
 
+        Ok(())
+    }
+
+    pub async fn trigger_action(
+        &mut self,
+        action: ScreenReaderAction,
+        _timestamp: u64,
+    ) -> Result<()> {
+        // TODO: Maybe filter events if the timestamp is too old?
+        match action {
+            ScreenReaderAction::StopSpeaking => {
+                // TODO: Use dbus method to stop orca from speaking instead once that's in a release/steamos package.
+                self.keyboard.key_down(Key::LeftCtrl)?;
+                self.keyboard.key_up(Key::LeftCtrl)?;
+            }
+            ScreenReaderAction::ReadNextWord => {
+                self.keyboard.key_down(Key::LeftCtrl)?;
+                self.keyboard.key_down(Key::Right)?;
+                self.keyboard.key_up(Key::Right)?;
+                self.keyboard.key_up(Key::LeftCtrl)?;
+            }
+            ScreenReaderAction::ReadPreviousWord => {
+                self.keyboard.key_down(Key::LeftCtrl)?;
+                self.keyboard.key_down(Key::Left)?;
+                self.keyboard.key_up(Key::Left)?;
+                self.keyboard.key_up(Key::LeftCtrl)?;
+            }
+            ScreenReaderAction::ReadNextItem => {
+                self.keyboard.key_down(Key::Down)?;
+                self.keyboard.key_up(Key::Down)?;
+            }
+            ScreenReaderAction::ReadPreviousItem => {
+                self.keyboard.key_down(Key::Up)?;
+                self.keyboard.key_up(Key::Up)?;
+            }
+            ScreenReaderAction::MoveToNextLandmark => {
+                self.keyboard.key_down(Key::M)?;
+                self.keyboard.key_up(Key::M)?;
+            }
+            ScreenReaderAction::MoveToPreviousLandmark => {
+                self.keyboard.key_down(Key::LeftShift)?;
+                self.keyboard.key_down(Key::M)?;
+                self.keyboard.key_up(Key::M)?;
+                self.keyboard.key_up(Key::LeftShift)?;
+            }
+            ScreenReaderAction::MoveToNextHeading => {
+                self.keyboard.key_down(Key::H)?;
+                self.keyboard.key_up(Key::H)?;
+            }
+            ScreenReaderAction::MoveToPreviousHeading => {
+                self.keyboard.key_down(Key::LeftShift)?;
+                self.keyboard.key_down(Key::H)?;
+                self.keyboard.key_up(Key::H)?;
+                self.keyboard.key_up(Key::LeftShift)?;
+            }
+            ScreenReaderAction::ToggleMode => {
+                self.keyboard.key_down(Key::Insert)?;
+                self.keyboard.key_down(Key::A)?;
+                self.keyboard.key_up(Key::A)?;
+                self.keyboard.key_up(Key::Insert)?;
+                // TODO: I guess we should emit that the mode changed here...
+                match self.mode {
+                    ScreenReaderMode::Browse => {
+                        self.mode = ScreenReaderMode::Focus;
+                    }
+                    ScreenReaderMode::Focus => {
+                        self.mode = ScreenReaderMode::Browse;
+                    }
+                }
+            }
+        }
         Ok(())
     }
 

@@ -18,7 +18,7 @@ input-linux = "0.7"
 itertools = "0.14"
 lazy_static = "1"
 libc = "0.2"
-nix = { version = "0.30", default-features = false, features = ["fs", "poll", "signal"] }
+nix = { version = "0.30", default-features = false, features = ["fs", "poll", "signal", "time"] }
 num_enum = "0.7"
 regex = "1"
 serde = { version = "1.0", default-features = false, features = ["derive"] }

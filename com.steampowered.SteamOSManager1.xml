@@ -342,6 +342,33 @@
         Valid modes: 0 - Browse mode, 1 - Focus mode.
     -->
     <property name="Mode" type="u" access="readwrite"/>
+     
+    <!--
+        Trigger Action
+
+        Forward a user interaction event to the screen reader service.
+
+        @action: The action genereated via user input. Valid values:
+          0 = Stop Talking
+          1 = Read Next Word,
+          2 = Read Previous Word,
+          3 = Read Next Item,
+          4 = Read Previous Item,
+          5 = Move To Next Landmark,
+          6 = Move To Previous Landmark,
+          7 = Move To Next Heading,
+          8 = Move To Previous Heading,
+          9 = Toggle between Browse mode and Focus mode,
+
+        @timestamp: refers to the time the user interaction event
+        that triggered this event happened. E.g. when the user pressed
+        a key to request this action. (Encoded as nanoseconds since the
+        start of CLOCK_MONOTONIC_RAW).
+    -->
+    <method name="TriggerAction">
+      <arg type="u" name="action" direction="in"/>
+      <arg type="t" name="timestamp" direction="in"/>
+    </method>
   </interface>
 
   <!--
