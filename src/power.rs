@@ -681,7 +681,7 @@ pub(crate) async fn get_max_charge_level() -> Result<i32> {
         .map_err(|e| anyhow!("Error parsing value: {e}"))
 }
 
-pub(crate) async fn set_max_charge_level(limit: i32) -> Result<()> {
+pub(crate) async fn set_max_charge_level(limit: i32) -> Result<oneshot::Receiver<SysfsWritten>> {
     ensure!((0..=100).contains(&limit), "Invalid limit");
     let data = limit.to_string();
     let config = device_config().await?;
@@ -691,9 +691,14 @@ pub(crate) async fn set_max_charge_level(limit: i32) -> Result<()> {
         .ok_or(anyhow!("No battery charge limit configured"))?;
     let base = find_hwmon(config.hwmon_name.as_str()).await?;
 
-    write_synced(base.join(config.attribute.as_str()), data.as_bytes())
-        .await
-        .inspect_err(|message| error!("Error writing to sysfs file: {message}"))
+    Ok(SYSFS_WRITER
+        .get()
+        .ok_or(anyhow!("sysfs writer not running"))?
+        .send(
+            base.join(config.attribute.clone()),
+            data.as_bytes().to_owned(),
+        )
+        .await)
 }
 
 pub(crate) async fn get_available_platform_profiles(name: &str) -> Result<Vec<String>> {
@@ -1650,11 +1655,11 @@ CCLK_RANGE in Core0:
 
         assert_eq!(get_max_charge_level().await.unwrap(), 10);
 
-        set_max_charge_level(99).await.expect("set");
-        assert_eq!(get_max_charge_level().await.unwrap(), 99);
+        write(base.join("max_battery_charge_level"), "99\n")
+            .await
+            .expect("write");
 
-        set_max_charge_level(0).await.expect("set");
-        assert_eq!(get_max_charge_level().await.unwrap(), 0);
+        assert_eq!(get_max_charge_level().await.unwrap(), 99);
 
         assert!(set_max_charge_level(101).await.is_err());
         assert!(set_max_charge_level(-1).await.is_err());
