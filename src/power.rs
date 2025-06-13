@@ -17,12 +17,13 @@ use std::ops::RangeInclusive;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 use strum::{Display, EnumString, VariantNames};
 use tokio::fs::{self, try_exists, File};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Interest};
 use tokio::net::unix::pipe;
 use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex, Notify, OnceCell};
 use tokio::task::JoinSet;
 use tracing::{debug, error, warn};
 use zbus::Connection;
@@ -60,6 +61,8 @@ lazy_static! {
     static ref GPU_CLOCK_LEVELS_REGEX: Regex =
         Regex::new(r"^\s*(?<index>[0-9]+): (?<value>[0-9]+)Mhz").unwrap();
 }
+
+static SYSFS_WRITER: OnceCell<Arc<SysfsWriterQueue>> = OnceCell::const_new();
 
 #[derive(Display, EnumString, PartialEq, Debug, Copy, Clone, TryFromPrimitive)]
 #[strum(serialize_all = "snake_case")]
@@ -166,6 +169,79 @@ pub(crate) enum TdpManagerCommand {
     UpdateDownloadMode,
     EnterDownloadMode(String, oneshot::Sender<Result<Option<OwnedFd>>>),
     ListDownloadModeHandles(oneshot::Sender<HashMap<String, u32>>),
+}
+
+#[derive(Debug)]
+pub(crate) enum SysfsWritten {
+    Written(Result<()>),
+    Superseded,
+}
+
+#[derive(Debug)]
+struct SysfsWriterQueue {
+    values: Mutex<HashMap<PathBuf, (Vec<u8>, oneshot::Sender<SysfsWritten>)>>,
+    notify: Notify,
+}
+
+impl SysfsWriterQueue {
+    fn new() -> SysfsWriterQueue {
+        SysfsWriterQueue {
+            values: Mutex::new(HashMap::new()),
+            notify: Notify::new(),
+        }
+    }
+
+    async fn send(&self, path: PathBuf, contents: Vec<u8>) -> oneshot::Receiver<SysfsWritten> {
+        let (tx, rx) = oneshot::channel();
+        if let Some((_, old_tx)) = self.values.lock().await.insert(path, (contents, tx)) {
+            let _ = old_tx.send(SysfsWritten::Superseded);
+        }
+        self.notify.notify_one();
+        rx
+    }
+
+    async fn recv(&self) -> Option<(PathBuf, Vec<u8>, oneshot::Sender<SysfsWritten>)> {
+        // Take an arbitrary file from the map
+        self.notify.notified().await;
+        let mut values = self.values.lock().await;
+        if let Some(path) = values.keys().next().cloned() {
+            values
+                .remove_entry(&path)
+                .map(|(path, (contents, tx))| (path, contents, tx))
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct SysfsWriterService {
+    queue: Arc<SysfsWriterQueue>,
+}
+
+impl SysfsWriterService {
+    pub fn init() -> Result<SysfsWriterService> {
+        ensure!(!SYSFS_WRITER.initialized(), "sysfs writer already active");
+        let queue = Arc::new(SysfsWriterQueue::new());
+        SYSFS_WRITER.set(queue.clone())?;
+        Ok(SysfsWriterService { queue })
+    }
+}
+
+impl Service for SysfsWriterService {
+    const NAME: &'static str = "sysfs-writer";
+
+    async fn run(&mut self) -> Result<()> {
+        loop {
+            let Some((path, contents, tx)) = self.queue.recv().await else {
+                continue;
+            };
+            let res = write_synced(path, &contents)
+                .await
+                .inspect_err(|message| error!("Error writing to sysfs file: {message}"));
+            let _ = tx.send(SysfsWritten::Written(res));
+        }
+    }
 }
 
 async fn read_gpu_sysfs_contents<S: AsRef<Path>>(suffix: S) -> Result<String> {
