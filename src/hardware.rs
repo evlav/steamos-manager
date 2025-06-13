@@ -71,6 +71,7 @@ pub(crate) struct DeviceConfig {
     pub gpu_clocks: Option<RangeConfig<u32>>,
     pub battery_charge_limit: Option<BatteryChargeLimitConfig>,
     pub performance_profile: Option<PerformanceProfileConfig>,
+    pub inputplumber: Option<InputPlumberConfig>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -98,6 +99,11 @@ pub(crate) struct DmiMatch {
 pub(crate) struct FirmwareAttributeConfig {
     pub attribute: String,
     pub performance_profile: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Debug)]
+pub struct InputPlumberConfig {
+    pub target_devices: Option<Vec<String>>,
 }
 
 #[derive(Clone, Deserialize, Debug)]

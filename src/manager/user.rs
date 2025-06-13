@@ -1121,8 +1121,8 @@ mod test {
     use crate::daemon::user::UserContext;
     use crate::hardware::test::fake_model;
     use crate::hardware::{
-        BatteryChargeLimitConfig, DeviceConfig, DeviceMatch, DmiMatch, PerformanceProfileConfig,
-        RangeConfig, SteamDeckVariant, TdpLimitConfig,
+        BatteryChargeLimitConfig, DeviceConfig, DeviceMatch, DmiMatch, InputPlumberConfig,
+        PerformanceProfileConfig, RangeConfig, SteamDeckVariant, TdpLimitConfig,
     };
     use crate::platform::{
         FormatDeviceConfig, PlatformConfig, ResetConfig, ScriptConfig, ServiceConfig, StorageConfig,
@@ -1186,6 +1186,9 @@ mod test {
             performance_profile: Some(PerformanceProfileConfig {
                 platform_profile_name: String::from("power-driver"),
                 suggested_default: String::from("balanced"),
+            }),
+            inputplumber: Some(InputPlumberConfig {
+                target_devices: Some(vec![String::from("deck-uhid")]),
             }),
         })
     }

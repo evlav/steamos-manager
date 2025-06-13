@@ -15,6 +15,7 @@ use zbus::proxy::CacheProperties;
 use zbus::zvariant::ObjectPath;
 use zbus::Connection;
 
+use crate::hardware;
 use crate::Service;
 
 #[zbus::proxy(
@@ -100,13 +101,44 @@ impl DeckService {
             .path(path)?
             .build()
             .await?;
-        if !self.is_deck(&proxy).await? {
-            debug!("Changing CompositeDevice {} into `deck-uhid` type", path);
-            proxy.set_target_devices(&["deck-uhid"]).await
+
+        let configured_target_devices: Option<Vec<String>> = match hardware::device_config().await {
+            Ok(Some(config)) => config
+                .inputplumber
+                .as_ref()
+                .and_then(|inputplumber_settings| inputplumber_settings.target_devices.clone()),
+            Ok(None) => {
+                debug!("No device_config found for inputplumber settings at path: {path}",);
+                None
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load device_config for inputplumber settings at path {path}: {e}",
+                );
+                None
+            }
+        };
+
+        let current_targets = proxy.target_devices().await?;
+
+        if let Some(targets_from_config) = configured_target_devices {
+            if current_targets != targets_from_config {
+                let target_devices: Vec<&str> =
+                    targets_from_config.iter().map(AsRef::as_ref).collect();
+                debug!("Changing CompositeDevice {path} to configured targets: {target_devices:?}",);
+                proxy.set_target_devices(&target_devices).await?;
+            } else {
+                let target_devices: Vec<&str> =
+                    targets_from_config.iter().map(AsRef::as_ref).collect();
+                debug!("CompositeDevice {path} already has configured targets: {target_devices:?}",);
+            }
+        } else if !self.is_deck(&proxy).await? {
+            debug!("CompositeDevice {path} not configured, setting to default 'deck-uhid'",);
+            proxy.set_target_devices(&["deck-uhid"]).await?;
         } else {
-            debug!("CompositeDevice {} is already `deck-uhid` type", path);
-            Ok(())
+            debug!("CompositeDevice {path} not configured, already 'deck-uhid' or custom state",);
         }
+        Ok(())
     }
 }
 
