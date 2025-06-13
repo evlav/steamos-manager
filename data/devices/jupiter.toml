@@ -1,3 +1,15 @@
+[[device]]
+dmi.sys_vendor = "Valve"
+dmi.board_name = "Jupiter"
+device = "steam_deck"
+variant = "Jupiter"
+
+[[device]]
+dmi.sys_vendor = "Valve"
+dmi.board_name = "Galileo"
+device = "steam_deck"
+variant = "Galileo"
+
 [tdp_limit]
 method = "gpu_hwmon"
 download_mode_limit = 6

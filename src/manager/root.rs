@@ -21,10 +21,11 @@ use crate::daemon::root::{Command, RootCommand};
 use crate::daemon::DaemonCommand;
 use crate::error::{to_zbus_error, to_zbus_fdo_error};
 use crate::hardware::{
-    steam_deck_variant, FactoryResetKind, FanControl, FanControlState, SteamDeckVariant,
+    device_config, steam_deck_variant, FactoryResetKind, FanControl, FanControlState,
+    SteamDeckVariant,
 };
 use crate::job::JobManager;
-use crate::platform::{device_config, platform_config};
+use crate::platform::platform_config;
 use crate::power::{
     set_cpu_scaling_governor, set_gpu_clocks, set_gpu_performance_level, set_gpu_power_profile,
     set_max_charge_level, set_platform_profile, tdp_limit_manager, CPUScalingGovernor,

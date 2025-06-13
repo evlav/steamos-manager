@@ -1,3 +1,33 @@
+[[device]]
+dmi.sys_vendor = "LENOVO"
+dmi.product_name = "83E1"
+device = "legion_go"
+variant = "83E1"
+
+[[device]]
+dmi.sys_vendor = "LENOVO"
+dmi.product_name = "83L3"
+device = "legion_go_s"
+variant = "83L3"
+
+[[device]]
+dmi.sys_vendor = "LENOVO"
+dmi.product_name = "83N6"
+device = "legion_go_s"
+variant = "83N6"
+
+[[device]]
+dmi.sys_vendor = "LENOVO"
+dmi.product_name = "83Q2"
+device = "legion_go_s"
+variant = "83Q2"
+
+[[device]]
+dmi.sys_vendor = "LENOVO"
+dmi.product_name = "83Q3"
+device = "legion_go_s"
+variant = "83Q3"
+
 [performance_profile]
 platform_profile_name = "lenovo-wmi-gamezone"
 suggested_default = "custom"
