@@ -1,0 +1,31 @@
+[[device]]
+dmi.sys_vendor = "Micro-Star International Co., Ltd."
+dmi.product_name = "Claw A1M"
+device = "claw_a1m"
+variant = "Claw A1M"
+
+[[device]]
+dmi.sys_vendor = "Micro-Star International Co., Ltd."
+dmi.product_name = "Claw 7 AI+ A2VM"
+device = "claw7_a2vm"
+variant = "Claw 7 AI+ A2VM"
+
+[[device]]
+dmi.sys_vendor = "Micro-Star International Co., Ltd."
+dmi.product_name = "Claw 8 AI+ A2VM"
+device = "claw8_a2vm"
+variant = "Claw 8 AI+ A2VM"
+
+[performance_profile]
+platform_profile_name = "msi-wmi-platform"
+suggested_default = "balanced-performance"
+
+[tdp_limit]
+method = "firmware_attribute"
+
+[tdp_limit.firmware_attribute]
+attribute = "msi-wmi-platform"
+performance_profile = "balanced-performance"
+
+[inputplumber]
+target_devices = ["deck-uhid", "keyboard"]
