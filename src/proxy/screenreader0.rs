@@ -48,4 +48,6 @@ pub trait ScreenReader0 {
     fn mode(&self) -> zbus::Result<u32>;
     #[zbus(property)]
     fn set_mode(&self, mode: u32) -> zbus::Result<()>;
+
+    fn trigger_action(&self, action: u32, timestamp: u64) -> zbus::Result<()>;
 }

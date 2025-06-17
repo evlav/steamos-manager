@@ -8,6 +8,7 @@
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
 use itertools::Itertools;
+use nix::time::{clock_gettime, ClockId};
 use std::collections::HashMap;
 use std::io::Cursor;
 use steamos_manager::cec::HdmiCecState;
@@ -20,7 +21,7 @@ use steamos_manager::proxy::{
     TdpLimit1Proxy, UpdateBios1Proxy, UpdateDock1Proxy, WifiDebug1Proxy, WifiDebugDump1Proxy,
     WifiPowerManagement1Proxy,
 };
-use steamos_manager::screenreader::ScreenReaderMode;
+use steamos_manager::screenreader::{ScreenReaderAction, ScreenReaderMode};
 use steamos_manager::wifi::{WifiBackend, WifiDebugMode, WifiPowerManagement};
 use zbus::fdo::{IntrospectableProxy, PropertiesProxy};
 use zbus::{zvariant, Connection};
@@ -251,6 +252,23 @@ enum Commands {
     SetScreenReaderMode {
         /// Valid modes are `browse`, `focus`
         mode: ScreenReaderMode,
+    },
+
+    /// Trigger screen reader action
+    TriggerScreenReaderAction {
+        /// Valid actions are:
+        ///  stop_talking
+        ///  read_next_word
+        ///  read_previous_word
+        ///  read_next_item
+        ///  read_previous_item
+        ///  move_to_next_landmark,
+        ///  move_to_previous_landmark,
+        ///  move_to_next_heading,
+        ///  move_to_previous_heading,
+        ///  toggle_mode,
+        ///
+        action: ScreenReaderAction,
     },
 }
 
@@ -612,6 +630,14 @@ async fn main() -> Result<()> {
         Commands::SetScreenReaderMode { mode } => {
             let proxy = ScreenReader0Proxy::new(&conn).await?;
             proxy.set_mode(*mode as u32).await?;
+        }
+        Commands::TriggerScreenReaderAction { action } => {
+            let proxy = ScreenReader0Proxy::new(&conn).await?;
+            let timestamp = clock_gettime(ClockId::CLOCK_MONOTONIC_RAW)?;
+            let now = timestamp.tv_sec() * 1000000000 + timestamp.tv_nsec();
+            proxy
+                .trigger_action(*action as u32, now.try_into()?)
+                .await?;
         }
     }
 

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+use ::sysinfo::System;
 use anyhow::{anyhow, bail, ensure, Result};
 use gio::{prelude::SettingsExt, Settings};
 #[cfg(test)]
@@ -15,6 +16,8 @@ use input_linux::{EventTime, Key, KeyEvent, KeyState, SynchronizeEvent};
 use lazy_static::lazy_static;
 #[cfg(not(test))]
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
+use nix::sys::signal;
+use nix::unistd::Pid;
 use num_enum::TryFromPrimitive;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -75,6 +78,22 @@ pub enum ScreenReaderMode {
     Focus = 1,
 }
 
+#[derive(Display, EnumString, PartialEq, Debug, Copy, Clone, TryFromPrimitive)]
+#[strum(serialize_all = "snake_case", ascii_case_insensitive)]
+#[repr(u32)]
+pub enum ScreenReaderAction {
+    StopSpeaking = 0,
+    ReadNextWord = 1,
+    ReadPreviousWord = 2,
+    ReadNextItem = 3,
+    ReadPreviousItem = 4,
+    MoveToNextLandmark = 5,
+    MoveToPreviousLandmark = 6,
+    MoveToNextHeading = 7,
+    MoveToPreviousHeading = 8,
+    ToggleMode = 9,
+}
+
 pub(crate) struct UInputDevice {
     #[cfg(not(test))]
     handle: UInputHandle<OwnedFd>,
@@ -124,8 +143,16 @@ impl UInputDevice {
         ensure!(!self.open, "Cannot reopen uinput handle");
 
         self.handle.set_evbit(EventKind::Key)?;
-        self.handle.set_keybit(Key::Insert)?;
         self.handle.set_keybit(Key::A)?;
+        self.handle.set_keybit(Key::H)?;
+        self.handle.set_keybit(Key::M)?;
+        self.handle.set_keybit(Key::Insert)?;
+        self.handle.set_keybit(Key::LeftCtrl)?;
+        self.handle.set_keybit(Key::LeftShift)?;
+        self.handle.set_keybit(Key::Down)?;
+        self.handle.set_keybit(Key::Left)?;
+        self.handle.set_keybit(Key::Right)?;
+        self.handle.set_keybit(Key::Up)?;
 
         let input_id = InputId {
             bustype: input_linux::sys::BUS_VIRTUAL,
@@ -323,6 +350,87 @@ impl<'dbus> OrcaManager<'dbus> {
         self.mode = mode;
 
         Ok(())
+    }
+
+    pub async fn trigger_action(
+        &mut self,
+        action: ScreenReaderAction,
+        _timestamp: u64,
+    ) -> Result<()> {
+        // TODO: Maybe filter events if the timestamp is too old?
+        match action {
+            ScreenReaderAction::StopSpeaking => {
+                // TODO: Use dbus method to stop orca from speaking instead once that's in a release/steamos package.
+                let pid = self.get_orca_pid()?;
+                signal::kill(pid, signal::Signal::SIGUSR2)?;
+            }
+            ScreenReaderAction::ReadNextWord => {
+                self.keyboard.key_down(Key::LeftCtrl)?;
+                self.keyboard.key_down(Key::Right)?;
+                self.keyboard.key_up(Key::Right)?;
+                self.keyboard.key_up(Key::LeftCtrl)?;
+            }
+            ScreenReaderAction::ReadPreviousWord => {
+                self.keyboard.key_down(Key::LeftCtrl)?;
+                self.keyboard.key_down(Key::Left)?;
+                self.keyboard.key_up(Key::Left)?;
+                self.keyboard.key_up(Key::LeftCtrl)?;
+            }
+            ScreenReaderAction::ReadNextItem => {
+                self.keyboard.key_down(Key::Down)?;
+                self.keyboard.key_up(Key::Down)?;
+            }
+            ScreenReaderAction::ReadPreviousItem => {
+                self.keyboard.key_down(Key::Up)?;
+                self.keyboard.key_up(Key::Up)?;
+            }
+            ScreenReaderAction::MoveToNextLandmark => {
+                self.keyboard.key_down(Key::M)?;
+                self.keyboard.key_up(Key::M)?;
+            }
+            ScreenReaderAction::MoveToPreviousLandmark => {
+                self.keyboard.key_down(Key::LeftShift)?;
+                self.keyboard.key_down(Key::M)?;
+                self.keyboard.key_up(Key::M)?;
+                self.keyboard.key_up(Key::LeftShift)?;
+            }
+            ScreenReaderAction::MoveToNextHeading => {
+                self.keyboard.key_down(Key::H)?;
+                self.keyboard.key_up(Key::H)?;
+            }
+            ScreenReaderAction::MoveToPreviousHeading => {
+                self.keyboard.key_down(Key::LeftShift)?;
+                self.keyboard.key_down(Key::H)?;
+                self.keyboard.key_up(Key::H)?;
+                self.keyboard.key_up(Key::LeftShift)?;
+            }
+            ScreenReaderAction::ToggleMode => {
+                self.keyboard.key_down(Key::Insert)?;
+                self.keyboard.key_down(Key::A)?;
+                self.keyboard.key_up(Key::A)?;
+                self.keyboard.key_up(Key::Insert)?;
+                // TODO: I guess we should emit that the mode changed here...
+                match self.mode {
+                    ScreenReaderMode::Browse => {
+                        self.mode = ScreenReaderMode::Focus;
+                    }
+                    ScreenReaderMode::Focus => {
+                        self.mode = ScreenReaderMode::Browse;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn get_orca_pid(&self) -> Result<Pid> {
+        let mut system = System::new();
+        system.refresh_all();
+
+        let mut p = system.processes_by_name("orca".as_ref());
+
+        let pid = p.next().expect("No orca process found");
+        Ok(Pid::from_raw(pid.pid().as_u32().try_into()?))
     }
 
     async fn set_orca_enabled(&mut self, enabled: bool) -> Result<()> {
