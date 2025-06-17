@@ -2,6 +2,7 @@
  * Copyright © 2023 Collabora Ltd.
  * Copyright © 2024 Valve Software
  * Copyright © 2024 Igalia S.L.
+ * Copyright © 2025 Harald Sitter <sitter@kde.org>
  *
  * SPDX-License-Identifier: MIT
  */
@@ -33,6 +34,9 @@ use crate::power::{
     get_max_charge_level, get_platform_profile, TdpManagerCommand,
 };
 use crate::screenreader::{OrcaManager, ScreenReaderAction, ScreenReaderMode};
+use crate::session_management::{
+    read_default_desktop_session_type, read_default_session_type, restart_session,
+};
 use crate::wifi::{
     get_wifi_backend, get_wifi_power_management_state, list_wifi_interfaces, WifiBackend,
 };
@@ -153,6 +157,11 @@ struct Manager2 {
 struct PerformanceProfile1 {
     proxy: Proxy<'static>,
     tdp_limit_manager: Option<UnboundedSender<TdpManagerCommand>>,
+}
+
+struct SessionManagement1 {
+    proxy: Proxy<'static>,
+    connection: Connection,
 }
 
 struct ScreenReader0 {
@@ -721,6 +730,65 @@ impl ScreenReader0 {
     }
 }
 
+#[interface(name = "com.steampowered.SteamOSManager1.SessionManagement1")]
+impl SessionManagement1 {
+    async fn switch_to_desktop_mode(&self) -> fdo::Result<()> {
+        self.switch_to_session(
+            read_default_desktop_session_type()
+                .await
+                .map_err(to_zbus_fdo_error)?
+                .as_str(),
+        )
+        .await
+    }
+
+    async fn switch_to_game_mode(&self) -> fdo::Result<()> {
+        self.switch_to_session("gamescope-wayland").await
+    }
+
+    async fn switch_to_session(&self, ty: &str) -> fdo::Result<()> {
+        let _: () = method!(self, "SetSessionToSwitchTo", ty)?;
+        restart_session(&self.connection)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    #[zbus(property)]
+    async fn default_desktop_session_type(&self) -> fdo::Result<String> {
+        read_default_desktop_session_type()
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    #[zbus(property)]
+    async fn set_default_desktop_session_type(
+        &self,
+        ty: &str,
+        #[zbus(signal_emitter)] ctx: SignalEmitter<'_>,
+    ) -> zbus::Result<()> {
+        let _: () = self
+            .proxy
+            .call("SetDefaultDesktopSessionType", &(ty))
+            .await?;
+        self.default_desktop_session_type_changed(&ctx).await
+    }
+
+    #[zbus(property)]
+    async fn default_session_type(&self) -> fdo::Result<String> {
+        read_default_session_type().await.map_err(to_zbus_fdo_error)
+    }
+
+    #[zbus(property)]
+    async fn set_default_session_type(
+        &self,
+        ty: &str,
+        #[zbus(signal_emitter)] ctx: SignalEmitter<'_>,
+    ) -> zbus::Result<()> {
+        let _: () = self.proxy.call("SetDefaultSessionType", &(ty)).await?;
+        self.default_session_type_changed(&ctx).await
+    }
+}
+
 #[interface(name = "com.steampowered.SteamOSManager1.Storage1")]
 impl Storage1 {
     async fn format_device(
@@ -1085,6 +1153,10 @@ pub(crate) async fn create_interfaces(
         channel: daemon,
     };
     let screen_reader = ScreenReader0::new(&session).await?;
+    let session_management = SessionManagement1 {
+        proxy: proxy.clone(),
+        connection: session.clone(),
+    };
     let wifi_debug = WifiDebug1 {
         proxy: proxy.clone(),
     };
@@ -1139,6 +1211,8 @@ pub(crate) async fn create_interfaces(
     object_server.at(MANAGER_PATH, manager2).await?;
 
     object_server.at(MANAGER_PATH, screen_reader).await?;
+
+    object_server.at(MANAGER_PATH, session_management).await?;
 
     if steam_deck_variant().await.unwrap_or_default() == SteamDeckVariant::Galileo {
         object_server.at(MANAGER_PATH, wifi_debug).await?;

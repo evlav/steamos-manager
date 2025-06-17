@@ -1,6 +1,7 @@
 /*
  * Copyright © 2023 Collabora Ltd.
  * Copyright © 2024 Valve Software
+ * Copyright © 2025 Harald Sitter <sitter@kde.org>
  *
  * SPDX-License-Identifier: MIT
  */
@@ -17,9 +18,9 @@ use steamos_manager::power::{CPUScalingGovernor, GPUPerformanceLevel, GPUPowerPr
 use steamos_manager::proxy::{
     AmbientLightSensor1Proxy, BatteryChargeLimit1Proxy, CpuScaling1Proxy, FactoryReset1Proxy,
     FanControl1Proxy, GpuPerformanceLevel1Proxy, GpuPowerProfile1Proxy, HdmiCec1Proxy,
-    LowPowerMode1Proxy, Manager2Proxy, PerformanceProfile1Proxy, ScreenReader0Proxy, Storage1Proxy,
-    TdpLimit1Proxy, UpdateBios1Proxy, UpdateDock1Proxy, WifiDebug1Proxy, WifiDebugDump1Proxy,
-    WifiPowerManagement1Proxy,
+    LowPowerMode1Proxy, Manager2Proxy, PerformanceProfile1Proxy, ScreenReader0Proxy,
+    SessionManagement1Proxy, Storage1Proxy, TdpLimit1Proxy, UpdateBios1Proxy, UpdateDock1Proxy,
+    WifiDebug1Proxy, WifiDebugDump1Proxy, WifiPowerManagement1Proxy,
 };
 use steamos_manager::screenreader::{ScreenReaderAction, ScreenReaderMode};
 use steamos_manager::wifi::{WifiBackend, WifiDebugMode, WifiPowerManagement};
@@ -268,6 +269,36 @@ enum Commands {
         /// `move_to_previous_heading`,
         /// `toggle_mode`
         action: ScreenReaderAction,
+    },
+
+    /// Switch to desktop mode
+    SwitchToDesktopMode,
+
+    /// Switch to game mode
+    SwitchToGameMode,
+
+    /// Switch to a specific session type
+    SwitchToSession {
+        /// The session type to switch to, e.g. `plasma`, `gamescope`.
+        ty: String,
+    },
+
+    /// Default desktop session type
+    GetDefaultDesktopSessionType,
+
+    /// Set default desktop session type
+    SetDefaultDesktopSessionType {
+        /// The session type to set as default, e.g. `plasma`, `plasmax11`.
+        ty: String,
+    },
+
+    /// Default session type
+    GetDefaultSessionType,
+
+    /// Set default session type
+    SetDefaultSessionType {
+        /// The session type to set as default, e.g. `plasma`, `gamescope`.
+        ty: String,
     },
 }
 
@@ -637,6 +668,36 @@ async fn main() -> Result<()> {
             proxy
                 .trigger_action(*action as u32, now.try_into()?)
                 .await?;
+        }
+        Commands::SwitchToDesktopMode => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.switch_to_desktop_mode().await?;
+        }
+        Commands::SwitchToGameMode => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.switch_to_game_mode().await?;
+        }
+        Commands::SwitchToSession { ty } => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.switch_to_session(ty.as_str()).await?;
+        }
+        Commands::GetDefaultDesktopSessionType => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            let ty = proxy.default_desktop_session_type().await?;
+            println!("Default desktop session type: {ty}");
+        }
+        Commands::SetDefaultDesktopSessionType { ty } => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.set_default_desktop_session_type(ty.as_str()).await?;
+        }
+        Commands::GetDefaultSessionType => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            let ty = proxy.default_session_type().await?;
+            println!("Default session type: {ty}");
+        }
+        Commands::SetDefaultSessionType { ty } => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.set_default_session_type(ty.as_str()).await?;
         }
     }
 
