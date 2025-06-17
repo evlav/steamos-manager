@@ -8,7 +8,7 @@
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
 use itertools::Itertools;
-use nix::time::ClockId;
+use nix::time::{clock_gettime, ClockId};
 use std::collections::HashMap;
 use std::io::Cursor;
 use steamos_manager::cec::HdmiCecState;
@@ -633,9 +633,10 @@ async fn main() -> Result<()> {
         }
         Commands::TriggerScreenReaderAction { action } => {
             let proxy = ScreenReader0Proxy::new(&conn).await?;
-            let timestamp = nix::time::clock_gettime(ClockId::CLOCK_MONOTONIC_RAW)?;
+            let timestamp = clock_gettime(ClockId::CLOCK_MONOTONIC_RAW)?;
+            let now = timestamp.tv_sec() * 1000000000 + timestamp.tv_nsec();
             proxy
-                .trigger_action(*action as u32, timestamp.tv_nsec().try_into()?)
+                .trigger_action(*action as u32, now.try_into()?)
                 .await?;
         }
     }

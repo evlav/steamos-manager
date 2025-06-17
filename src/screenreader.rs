@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+use ::sysinfo::System;
 use anyhow::{anyhow, bail, ensure, Result};
 use gio::{prelude::SettingsExt, Settings};
 #[cfg(test)]
@@ -15,6 +16,8 @@ use input_linux::{EventTime, Key, KeyEvent, KeyState, SynchronizeEvent};
 use lazy_static::lazy_static;
 #[cfg(not(test))]
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
+use nix::sys::signal;
+use nix::unistd::Pid;
 use num_enum::TryFromPrimitive;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -358,8 +361,8 @@ impl<'dbus> OrcaManager<'dbus> {
         match action {
             ScreenReaderAction::StopSpeaking => {
                 // TODO: Use dbus method to stop orca from speaking instead once that's in a release/steamos package.
-                self.keyboard.key_down(Key::LeftCtrl)?;
-                self.keyboard.key_up(Key::LeftCtrl)?;
+                let pid = self.get_orca_pid()?;
+                signal::kill(pid, signal::Signal::SIGUSR2)?;
             }
             ScreenReaderAction::ReadNextWord => {
                 self.keyboard.key_down(Key::LeftCtrl)?;
@@ -418,6 +421,16 @@ impl<'dbus> OrcaManager<'dbus> {
             }
         }
         Ok(())
+    }
+
+    fn get_orca_pid(&self) -> Result<Pid> {
+        let mut system = System::new();
+        system.refresh_all();
+
+        let mut p = system.processes_by_name("orca".as_ref());
+
+        let pid = p.next().expect("No orca process found");
+        Ok(Pid::from_raw(pid.pid().as_u32().try_into()?))
     }
 
     async fn set_orca_enabled(&mut self, enabled: bool) -> Result<()> {
