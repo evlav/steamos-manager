@@ -10,6 +10,7 @@ use anyhow::{Error, Result};
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
+use tokio_stream::StreamExt;
 use tracing::error;
 use zbus::object_server::SignalEmitter;
 use zbus::proxy::{Builder, CacheProperties};
@@ -35,7 +36,7 @@ use crate::screenreader::{OrcaManager, ScreenReaderAction, ScreenReaderMode};
 use crate::wifi::{
     get_wifi_backend, get_wifi_power_management_state, list_wifi_interfaces, WifiBackend,
 };
-use crate::API_VERSION;
+use crate::{Service, API_VERSION};
 
 pub(crate) const MANAGER_PATH: &str = "/com/steampowered/SteamOSManager1";
 
@@ -185,6 +186,11 @@ struct WifiPowerManagement1 {
     proxy: Proxy<'static>,
 }
 
+pub(crate) struct SignalRelayService {
+    proxy: Proxy<'static>,
+    session: Connection,
+}
+
 impl SteamOSManager {
     pub async fn new(
         system_conn: Connection,
@@ -275,13 +281,8 @@ impl BatteryChargeLimit1 {
     }
 
     #[zbus(property)]
-    async fn set_max_charge_level(
-        &self,
-        limit: i32,
-        #[zbus(signal_emitter)] ctx: SignalEmitter<'_>,
-    ) -> zbus::Result<()> {
-        let _: () = self.proxy.call("SetMaxChargeLevel", &(limit)).await?;
-        self.max_charge_level_changed(&ctx).await
+    async fn set_max_charge_level(&self, limit: i32) -> zbus::Result<()> {
+        self.proxy.call("SetMaxChargeLevel", &(limit)).await
     }
 
     #[zbus(property(emits_changed_signal = "const"))]
@@ -885,6 +886,33 @@ impl WifiPowerManagement1 {
     }
 }
 
+impl Service for SignalRelayService {
+    const NAME: &'static str = "signal-relay";
+
+    async fn run(&mut self) -> Result<()> {
+        let Ok(battery_charge_limit) = self
+            .session
+            .object_server()
+            .interface::<_, BatteryChargeLimit1>(MANAGER_PATH)
+            .await
+        else {
+            return Ok(());
+        };
+        let ctx = battery_charge_limit.signal_emitter();
+
+        let mut max_charge_level_changed =
+            self.proxy.receive_signal("MaxChargeLevelChanged").await?;
+        loop {
+            max_charge_level_changed.next().await;
+            battery_charge_limit
+                .get()
+                .await
+                .max_charge_level_changed(ctx)
+                .await?;
+        }
+    }
+}
+
 async fn create_platform_interfaces(
     proxy: &Proxy<'static>,
     object_server: &ObjectServer,
@@ -1025,7 +1053,7 @@ pub(crate) async fn create_interfaces(
     daemon: Sender<Command>,
     job_manager: UnboundedSender<JobManagerCommand>,
     tdp_manager: Option<UnboundedSender<TdpManagerCommand>>,
-) -> Result<()> {
+) -> Result<SignalRelayService> {
     let proxy = Builder::<Proxy>::new(&system)
         .destination("com.steampowered.SteamOSManager1")?
         .path("/com/steampowered/SteamOSManager1")?
@@ -1122,7 +1150,7 @@ pub(crate) async fn create_interfaces(
             .await?;
     }
 
-    Ok(())
+    Ok(SignalRelayService { session, proxy })
 }
 
 #[cfg(test)]

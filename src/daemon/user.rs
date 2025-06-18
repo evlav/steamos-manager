@@ -21,7 +21,7 @@ use zbus::fdo::ObjectManager;
 
 use crate::daemon::{channel, Daemon, DaemonCommand, DaemonContext};
 use crate::job::{JobManager, JobManagerService};
-use crate::manager::user::create_interfaces;
+use crate::manager::user::{create_interfaces, SignalRelayService};
 use crate::path;
 use crate::power::TdpManagerService;
 use crate::udev::UdevMonitor;
@@ -114,6 +114,7 @@ async fn create_connections(
     Connection,
     JobManagerService,
     Result<TdpManagerService>,
+    SignalRelayService,
 )> {
     let system = Connection::system().await?;
     let connection = Builder::session()?
@@ -133,9 +134,16 @@ async fn create_connections(
         None
     };
 
-    create_interfaces(connection.clone(), system.clone(), channel, jm_tx, tdp_tx).await?;
+    let signal_relay_service =
+        create_interfaces(connection.clone(), system.clone(), channel, jm_tx, tdp_tx).await?;
 
-    Ok((connection, system, jm_service, tdp_service))
+    Ok((
+        connection,
+        system,
+        jm_service,
+        tdp_service,
+        signal_relay_service,
+    ))
 }
 
 pub async fn daemon() -> Result<()> {
@@ -146,20 +154,22 @@ pub async fn daemon() -> Result<()> {
     let subscriber = Registry::default().with(stdout_log);
     let (tx, rx) = channel::<UserContext>();
 
-    let (session, system, mirror_service, tdp_service) = match create_connections(tx).await {
-        Ok(c) => c,
-        Err(e) => {
-            let _guard = tracing::subscriber::set_default(subscriber);
-            error!("Error connecting to DBus: {}", e);
-            bail!(e);
-        }
-    };
+    let (session, system, mirror_service, tdp_service, signal_relay_service) =
+        match create_connections(tx).await {
+            Ok(c) => c,
+            Err(e) => {
+                let _guard = tracing::subscriber::set_default(subscriber);
+                error!("Error connecting to DBus: {}", e);
+                bail!(e);
+            }
+        };
 
     let context = UserContext {
         session: session.clone(),
     };
     let mut daemon = Daemon::new(subscriber, system, rx).await?;
 
+    daemon.add_service(signal_relay_service);
     daemon.add_service(mirror_service);
     if let Ok(tdp_service) = tdp_service {
         daemon.add_service(tdp_service);

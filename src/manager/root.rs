@@ -10,6 +10,7 @@ use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use tokio::fs::File;
+use tokio::spawn;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tracing::{error, info};
@@ -29,7 +30,7 @@ use crate::platform::platform_config;
 use crate::power::{
     set_cpu_scaling_governor, set_gpu_clocks, set_gpu_performance_level, set_gpu_power_profile,
     set_max_charge_level, set_platform_profile, tdp_limit_manager, CPUScalingGovernor,
-    GPUPerformanceLevel, GPUPowerProfile, TdpLimitManager,
+    GPUPerformanceLevel, GPUPowerProfile, SysfsWritten, TdpLimitManager,
 };
 use crate::process::{run_script, script_output};
 use crate::wifi::{
@@ -444,10 +445,34 @@ impl SteamOSManager {
             .map_err(to_zbus_fdo_error)
     }
 
-    async fn set_max_charge_level(&self, level: i32) -> fdo::Result<()> {
-        set_max_charge_level(if level == -1 { 0 } else { level })
+    #[zbus(signal)]
+    async fn max_charge_level_changed(signal_emitter: &SignalEmitter<'_>) -> zbus::Result<()>;
+
+    async fn set_max_charge_level(
+        &self,
+        level: i32,
+        #[zbus(connection)] connection: &Connection,
+    ) -> fdo::Result<()> {
+        let written = set_max_charge_level(if level == -1 { 0 } else { level })
             .await
-            .map_err(to_zbus_fdo_error)
+            .map_err(to_zbus_fdo_error)?;
+        let connection = connection.clone();
+        spawn(async move {
+            match written.await {
+                Ok(SysfsWritten::Written(res)) => {
+                    if let Ok(interface) = connection
+                        .object_server()
+                        .interface::<_, Self>("/com/steampowered/SteamOSManager1")
+                        .await
+                    {
+                        interface.max_charge_level_changed().await?;
+                    }
+                    res
+                }
+                _ => Ok(()),
+            }
+        });
+        Ok(())
     }
 
     async fn set_performance_profile(&self, profile: &str) -> fdo::Result<()> {
