@@ -443,9 +443,9 @@ impl<'dbus> OrcaManager<'dbus> {
         let mut system = System::new();
         system.refresh_all();
 
-        let mut p = system.processes_by_name("orca".as_ref());
+        let mut p = system.processes_by_exact_name("orca".as_ref());
 
-        let pid = p.next().expect("No orca process found");
+        let pid = p.next().ok_or(anyhow!("No orca process found"))?;
         Ok(Pid::from_raw(pid.pid().as_u32().try_into()?))
     }
 
