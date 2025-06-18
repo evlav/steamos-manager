@@ -328,6 +328,10 @@ impl<'dbus> OrcaManager<'dbus> {
     }
 
     pub async fn set_mode(&mut self, mode: ScreenReaderMode) -> Result<()> {
+        if self.mode == mode {
+            return Ok(());
+        }
+
         // Use insert+A twice to switch to focus mode sticky
         // Use insert+A three times to switch to browse mode sticky
         match mode {
