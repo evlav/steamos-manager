@@ -82,7 +82,7 @@ pub enum ScreenReaderMode {
 #[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 #[repr(u32)]
 pub enum ScreenReaderAction {
-    StopSpeaking = 0,
+    StopTalking = 0,
     ReadNextWord = 1,
     ReadPreviousWord = 2,
     ReadNextItem = 3,
@@ -362,7 +362,7 @@ impl<'dbus> OrcaManager<'dbus> {
     ) -> Result<()> {
         // TODO: Maybe filter events if the timestamp is too old?
         match action {
-            ScreenReaderAction::StopSpeaking => {
+            ScreenReaderAction::StopTalking => {
                 // TODO: Use dbus method to stop orca from speaking instead once that's in a release/steamos package.
                 let pid = self.get_orca_pid()?;
                 signal::kill(pid, signal::Signal::SIGUSR2)?;
