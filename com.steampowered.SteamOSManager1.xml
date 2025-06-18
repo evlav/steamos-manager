@@ -301,7 +301,7 @@
   <!--
       com.steampowered.SteamOSManager1.ScreenReader1
       @short_description: Optional interface for managing a screen reader.
-    
+
       This interface is considered unstable and may change between verisons.
       Once it is considered stable it will be renamed to ScreenReader1
   -->
@@ -342,7 +342,7 @@
         Valid modes: 0 - Browse mode, 1 - Focus mode.
     -->
     <property name="Mode" type="u" access="readwrite"/>
-     
+
     <!--
         Trigger Action
 
