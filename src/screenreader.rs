@@ -293,6 +293,7 @@ impl<'dbus> OrcaManager<'dbus> {
 
         self.set_orca_option(PITCH_SETTING, pitch).await?;
         self.pitch = pitch;
+        self.reload_orca().await?;
         Ok(())
     }
 
@@ -305,6 +306,7 @@ impl<'dbus> OrcaManager<'dbus> {
 
         self.set_orca_option(RATE_SETTING, rate).await?;
         self.rate = rate;
+        self.reload_orca().await?;
         Ok(())
     }
 
@@ -317,6 +319,7 @@ impl<'dbus> OrcaManager<'dbus> {
 
         self.set_orca_option(VOLUME_SETTING, volume).await?;
         self.volume = volume;
+        self.reload_orca().await?;
         Ok(())
     }
 
@@ -420,6 +423,19 @@ impl<'dbus> OrcaManager<'dbus> {
                 }
             }
         }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    async fn reload_orca(&self) -> Result<()> {
+        Ok(())
+    }
+
+    #[cfg(not(test))]
+    async fn reload_orca(&self) -> Result<()> {
+        // TODO: Use dbus api to tell orca to reload settings once dbus api is packaged.
+        let pid = self.get_orca_pid()?;
+        signal::kill(pid, signal::Signal::SIGUSR1)?;
         Ok(())
     }
 
