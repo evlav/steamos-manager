@@ -256,18 +256,17 @@ enum Commands {
 
     /// Trigger screen reader action
     TriggerScreenReaderAction {
-        /// Valid actions are:
-        ///  stop_talking
-        ///  read_next_word
-        ///  read_previous_word
-        ///  read_next_item
-        ///  read_previous_item
-        ///  move_to_next_landmark,
-        ///  move_to_previous_landmark,
-        ///  move_to_next_heading,
-        ///  move_to_previous_heading,
-        ///  toggle_mode,
-        ///
+        /// Valid actions are
+        /// `stop_talking`,
+        /// `read_next_word`,
+        /// `read_previous_word`,
+        /// `read_next_item`,
+        /// `read_previous_item`,
+        /// `move_to_next_landmark`,
+        /// `move_to_previous_landmark`,
+        /// `move_to_next_heading`,
+        /// `move_to_previous_heading`,
+        /// `toggle_mode`
         action: ScreenReaderAction,
     },
 }
