@@ -8,29 +8,16 @@
 use ::sysinfo::System;
 use anyhow::{anyhow, bail, ensure, Result};
 use gio::{prelude::SettingsExt, Settings};
-#[cfg(test)]
-use input_linux::InputEvent;
-#[cfg(not(test))]
-use input_linux::{EventKind, InputId, UInputHandle};
-use input_linux::{EventTime, Key, KeyEvent, KeyState, SynchronizeEvent};
+use input_linux::Key;
 use lazy_static::lazy_static;
-#[cfg(not(test))]
-use nix::fcntl::{fcntl, FcntlArg, OFlag};
 use nix::sys::signal;
 use nix::unistd::Pid;
 use num_enum::TryFromPrimitive;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-#[cfg(test)]
-use std::collections::VecDeque;
-#[cfg(not(test))]
-use std::fs::OpenOptions;
 use std::io::ErrorKind;
 use std::ops::RangeInclusive;
-#[cfg(not(test))]
-use std::os::fd::OwnedFd;
 use std::path::PathBuf;
-use std::time::SystemTime;
 use strum::{Display, EnumString};
 use tokio::fs::{read_to_string, write};
 use tracing::{debug, error, info, trace, warn};
@@ -41,6 +28,7 @@ use zbus::Connection;
 #[cfg(test)]
 use crate::path;
 use crate::systemd::SystemdUnit;
+use crate::uinput::UInputDevice;
 
 #[cfg(test)]
 const TEST_ORCA_SETTINGS: &str = "data/test-orca-settings.conf";
@@ -94,117 +82,6 @@ pub enum ScreenReaderAction {
     ToggleMode = 9,
 }
 
-pub(crate) struct UInputDevice {
-    #[cfg(not(test))]
-    handle: UInputHandle<OwnedFd>,
-    #[cfg(test)]
-    queue: VecDeque<InputEvent>,
-    name: String,
-    open: bool,
-}
-
-impl UInputDevice {
-    #[cfg(not(test))]
-    pub(crate) fn new() -> Result<UInputDevice> {
-        let fd = OpenOptions::new()
-            .write(true)
-            .create(false)
-            .open("/dev/uinput")?
-            .into();
-
-        let mut flags = OFlag::from_bits_retain(fcntl(&fd, FcntlArg::F_GETFL)?);
-        flags.set(OFlag::O_NONBLOCK, true);
-        fcntl(&fd, FcntlArg::F_SETFL(flags))?;
-
-        Ok(UInputDevice {
-            handle: UInputHandle::new(fd),
-            name: String::new(),
-            open: false,
-        })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new() -> Result<UInputDevice> {
-        Ok(UInputDevice {
-            queue: VecDeque::new(),
-            name: String::new(),
-            open: false,
-        })
-    }
-
-    pub(crate) fn set_name(&mut self, name: String) -> Result<()> {
-        ensure!(!self.open, "Cannot change name after opening");
-        self.name = name;
-        Ok(())
-    }
-
-    #[cfg(not(test))]
-    pub(crate) fn open(&mut self) -> Result<()> {
-        ensure!(!self.open, "Cannot reopen uinput handle");
-
-        self.handle.set_evbit(EventKind::Key)?;
-        self.handle.set_keybit(Key::A)?;
-        self.handle.set_keybit(Key::H)?;
-        self.handle.set_keybit(Key::M)?;
-        self.handle.set_keybit(Key::Insert)?;
-        self.handle.set_keybit(Key::LeftCtrl)?;
-        self.handle.set_keybit(Key::LeftShift)?;
-        self.handle.set_keybit(Key::Down)?;
-        self.handle.set_keybit(Key::Left)?;
-        self.handle.set_keybit(Key::Right)?;
-        self.handle.set_keybit(Key::Up)?;
-
-        let input_id = InputId {
-            bustype: input_linux::sys::BUS_VIRTUAL,
-            vendor: 0x28DE,
-            product: 0,
-            version: 0,
-        };
-        self.handle
-            .create(&input_id, self.name.as_bytes(), 0, &[])?;
-        self.open = true;
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn open(&mut self) -> Result<()> {
-        ensure!(!self.open, "Cannot reopen uinput handle");
-        self.open = true;
-        Ok(())
-    }
-
-    fn system_time() -> Result<EventTime> {
-        let duration = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
-        Ok(EventTime::new(
-            duration.as_secs().try_into()?,
-            duration.subsec_micros().into(),
-        ))
-    }
-
-    fn send_key_event(&mut self, key: Key, value: KeyState) -> Result<()> {
-        let tv = UInputDevice::system_time().unwrap_or_else(|err| {
-            warn!("System time error: {err}");
-            EventTime::default()
-        });
-
-        let ev = KeyEvent::new(tv, key, value);
-        let syn = SynchronizeEvent::report(tv);
-        #[cfg(not(test))]
-        self.handle.write(&[*ev.as_ref(), *syn.as_ref()])?;
-        #[cfg(test)]
-        self.queue.extend(&[*ev.as_ref(), *syn.as_ref()]);
-        Ok(())
-    }
-
-    pub(crate) fn key_down(&mut self, key: Key) -> Result<()> {
-        self.send_key_event(key, KeyState::PRESSED)
-    }
-
-    pub(crate) fn key_up(&mut self, key: Key) -> Result<()> {
-        self.send_key_event(key, KeyState::RELEASED)
-    }
-}
-
 pub(crate) struct OrcaManager<'dbus> {
     orca_unit: SystemdUnit<'dbus>,
     rate: f64,
@@ -234,7 +111,18 @@ impl<'dbus> OrcaManager<'dbus> {
         let a11ysettings = Settings::new(A11Y_SETTING);
         manager.enabled = a11ysettings.boolean(SCREEN_READER_SETTING);
         manager.keyboard.set_name(KEYBOARD_NAME.to_string())?;
-        manager.keyboard.open()?;
+        manager.keyboard.open(&[
+            Key::A,
+            Key::H,
+            Key::M,
+            Key::Insert,
+            Key::LeftCtrl,
+            Key::LeftShift,
+            Key::Down,
+            Key::Left,
+            Key::Right,
+            Key::Up,
+        ])?;
 
         Ok(manager)
     }
