@@ -146,21 +146,19 @@ impl<'dbus> OrcaManager<'dbus> {
     }
 
     pub async fn set_enabled(&mut self, enable: bool) -> Result<()> {
-        if self.enabled == enable {
-            return Ok(());
-        }
-
-        #[cfg(not(test))]
-        {
-            let a11ysettings = Settings::new(A11Y_SETTING);
-            a11ysettings
-                .set_boolean(SCREEN_READER_SETTING, enable)
-                .map_err(|e| anyhow!("Unable to set screen reader enabled gsetting, {e}"))?;
-        }
-        if let Err(e) = self.set_orca_enabled(enable).await {
-            match e.downcast_ref::<std::io::Error>() {
-                Some(e) if e.kind() == ErrorKind::NotFound => (),
-                _ => return Err(e),
+        if enable != self.enabled {
+            #[cfg(not(test))]
+            {
+                let a11ysettings = Settings::new(A11Y_SETTING);
+                a11ysettings
+                    .set_boolean(SCREEN_READER_SETTING, enable)
+                    .map_err(|e| anyhow!("Unable to set screen reader enabled gsetting, {e}"))?;
+            }
+            if let Err(e) = self.set_orca_enabled(enable).await {
+                match e.downcast_ref::<std::io::Error>() {
+                    Some(e) if e.kind() == ErrorKind::NotFound => (),
+                    _ => return Err(e),
+                }
             }
         }
         if enable {
