@@ -225,20 +225,15 @@ impl<'dbus> OrcaManager<'dbus> {
         match mode {
             ScreenReaderMode::Focus => {
                 self.keyboard.key_down(Key::Insert)?;
-                self.keyboard.key_down(Key::A)?;
-                self.keyboard.key_up(Key::A)?;
-                self.keyboard.key_down(Key::A)?;
-                self.keyboard.key_up(Key::A)?;
+                self.keyboard.key_press(Key::A)?;
+                self.keyboard.key_press(Key::A)?;
                 self.keyboard.key_up(Key::Insert)?;
             }
             ScreenReaderMode::Browse => {
                 self.keyboard.key_down(Key::Insert)?;
-                self.keyboard.key_down(Key::A)?;
-                self.keyboard.key_up(Key::A)?;
-                self.keyboard.key_down(Key::A)?;
-                self.keyboard.key_up(Key::A)?;
-                self.keyboard.key_down(Key::A)?;
-                self.keyboard.key_up(Key::A)?;
+                self.keyboard.key_press(Key::A)?;
+                self.keyboard.key_press(Key::A)?;
+                self.keyboard.key_press(Key::A)?;
                 self.keyboard.key_up(Key::Insert)?;
             }
         }
@@ -261,48 +256,39 @@ impl<'dbus> OrcaManager<'dbus> {
             }
             ScreenReaderAction::ReadNextWord => {
                 self.keyboard.key_down(Key::LeftCtrl)?;
-                self.keyboard.key_down(Key::Right)?;
-                self.keyboard.key_up(Key::Right)?;
+                self.keyboard.key_press(Key::Right)?;
                 self.keyboard.key_up(Key::LeftCtrl)?;
             }
             ScreenReaderAction::ReadPreviousWord => {
                 self.keyboard.key_down(Key::LeftCtrl)?;
-                self.keyboard.key_down(Key::Left)?;
-                self.keyboard.key_up(Key::Left)?;
+                self.keyboard.key_press(Key::Left)?;
                 self.keyboard.key_up(Key::LeftCtrl)?;
             }
             ScreenReaderAction::ReadNextItem => {
-                self.keyboard.key_down(Key::Down)?;
-                self.keyboard.key_up(Key::Down)?;
+                self.keyboard.key_press(Key::Down)?;
             }
             ScreenReaderAction::ReadPreviousItem => {
-                self.keyboard.key_down(Key::Up)?;
-                self.keyboard.key_up(Key::Up)?;
+                self.keyboard.key_press(Key::Up)?;
             }
             ScreenReaderAction::MoveToNextLandmark => {
-                self.keyboard.key_down(Key::M)?;
-                self.keyboard.key_up(Key::M)?;
+                self.keyboard.key_press(Key::M)?;
             }
             ScreenReaderAction::MoveToPreviousLandmark => {
                 self.keyboard.key_down(Key::LeftShift)?;
-                self.keyboard.key_down(Key::M)?;
-                self.keyboard.key_up(Key::M)?;
+                self.keyboard.key_press(Key::M)?;
                 self.keyboard.key_up(Key::LeftShift)?;
             }
             ScreenReaderAction::MoveToNextHeading => {
-                self.keyboard.key_down(Key::H)?;
-                self.keyboard.key_up(Key::H)?;
+                self.keyboard.key_press(Key::H)?;
             }
             ScreenReaderAction::MoveToPreviousHeading => {
                 self.keyboard.key_down(Key::LeftShift)?;
-                self.keyboard.key_down(Key::H)?;
-                self.keyboard.key_up(Key::H)?;
+                self.keyboard.key_press(Key::H)?;
                 self.keyboard.key_up(Key::LeftShift)?;
             }
             ScreenReaderAction::ToggleMode => {
                 self.keyboard.key_down(Key::Insert)?;
-                self.keyboard.key_down(Key::A)?;
-                self.keyboard.key_up(Key::A)?;
+                self.keyboard.key_press(Key::A)?;
                 self.keyboard.key_up(Key::Insert)?;
                 // TODO: I guess we should emit that the mode changed here...
                 match self.mode {
@@ -476,6 +462,7 @@ mod test {
     use crate::systemd::test::{MockManager, MockUnit};
     use crate::systemd::EnableState;
     use crate::testing;
+    use input_linux::{Key, KeyState};
     use std::time::Duration;
     use tokio::fs::{copy, remove_file};
     use tokio::time::sleep;
@@ -621,5 +608,460 @@ mod test {
         let nofile_result = manager.set_volume(7.0).await;
         assert_eq!(manager.volume(), 5.0);
         assert!(nofile_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_read_next_word() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager
+            .trigger_action(ScreenReaderAction::ReadNextWord, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::LeftCtrl, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Right, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Right, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::LeftCtrl, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_read_previous_word() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager
+            .trigger_action(ScreenReaderAction::ReadPreviousWord, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::LeftCtrl, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Left, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Left, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::LeftCtrl, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_read_next_item() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager
+            .trigger_action(ScreenReaderAction::ReadNextItem, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::Down, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Down, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_read_previous_item() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager
+            .trigger_action(ScreenReaderAction::ReadPreviousItem, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::Up, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Up, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_move_to_next_landmark() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager
+            .trigger_action(ScreenReaderAction::MoveToNextLandmark, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::M, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::M, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_move_to_previous_landmark() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager
+            .trigger_action(ScreenReaderAction::MoveToPreviousLandmark, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::LeftShift, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::M, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::M, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::LeftShift, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_move_to_next_heading() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager
+            .trigger_action(ScreenReaderAction::MoveToNextHeading, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::H, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::H, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_move_to_previous_heading() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager
+            .trigger_action(ScreenReaderAction::MoveToPreviousHeading, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::LeftShift, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::H, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::H, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::LeftShift, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_toggle_mode_to_focus() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager.mode = ScreenReaderMode::Browse;
+        manager
+            .trigger_action(ScreenReaderAction::ToggleMode, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::Insert, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Insert, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+
+        assert_eq!(manager.mode, ScreenReaderMode::Focus);
+    }
+
+    #[tokio::test]
+    async fn test_toggle_mode_to_browse() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager.mode = ScreenReaderMode::Focus;
+        manager
+            .trigger_action(ScreenReaderAction::ToggleMode, 0)
+            .await
+            .unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::Insert, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Insert, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+
+        assert_eq!(manager.mode, ScreenReaderMode::Browse);
+    }
+
+    #[tokio::test]
+    async fn test_set_mode_to_focus() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager.mode = ScreenReaderMode::Browse;
+        manager.set_mode(ScreenReaderMode::Focus).await.unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::Insert, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Insert, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+
+        assert_eq!(manager.mode, ScreenReaderMode::Focus);
+    }
+
+    #[tokio::test]
+    async fn test_set_mode_to_browse() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager.mode = ScreenReaderMode::Focus;
+        manager.set_mode(ScreenReaderMode::Browse).await.unwrap();
+
+        manager
+            .keyboard
+            .expect_key(Key::Insert, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::PRESSED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::A, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager
+            .keyboard
+            .expect_key(Key::Insert, KeyState::RELEASED)
+            .unwrap();
+        manager.keyboard.expect_sync().unwrap();
+        manager.keyboard.expect_empty().unwrap();
+
+        assert_eq!(manager.mode, ScreenReaderMode::Browse);
+    }
+
+    #[tokio::test]
+    async fn test_set_mode_same() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        manager.mode = ScreenReaderMode::Browse;
+        manager.set_mode(ScreenReaderMode::Browse).await.unwrap();
+        manager.keyboard.expect_empty().unwrap();
+        assert_eq!(manager.mode, ScreenReaderMode::Browse);
     }
 }

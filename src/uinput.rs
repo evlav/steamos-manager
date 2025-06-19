@@ -8,9 +8,9 @@
 use anyhow::{ensure, Result};
 #[cfg(test)]
 use input_linux::InputEvent;
+use input_linux::{EventKind, EventTime, Key, KeyEvent, KeyState, SynchronizeEvent};
 #[cfg(not(test))]
-use input_linux::{EventKind, InputId, UInputHandle};
-use input_linux::{EventTime, Key, KeyEvent, KeyState, SynchronizeEvent};
+use input_linux::{InputId, UInputHandle};
 #[cfg(not(test))]
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
 #[cfg(test)]
@@ -132,5 +132,41 @@ impl UInputDevice {
 
     pub(crate) fn key_up(&mut self, key: Key) -> Result<()> {
         self.send_key_event(key, KeyState::RELEASED)
+    }
+
+    pub(crate) fn key_press(&mut self, key: Key) -> Result<()> {
+        self.send_key_event(key, KeyState::PRESSED)?;
+        self.send_key_event(key, KeyState::RELEASED)?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expect_sync(&mut self) -> Result<()> {
+        let event = self.queue.pop_front().unwrap();
+        ensure!(
+            event.kind == EventKind::Synchronize,
+            "event.kind is {:?}",
+            event.kind
+        );
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expect_key(&mut self, key: Key, state: KeyState) -> Result<()> {
+        let event = self.queue.pop_front().unwrap();
+        ensure!(
+            event.kind == EventKind::Key,
+            "event.kind is {:?}",
+            event.kind
+        );
+        ensure!(event.code == key as u16, "event.code is {}", event.code);
+        ensure!(event.value == state.value, "event.value is {}", event.value);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expect_empty(&mut self) -> Result<()> {
+        ensure!(self.queue.is_empty(), "queue not empty");
+        Ok(())
     }
 }
