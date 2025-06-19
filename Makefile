@@ -16,6 +16,7 @@ test:
 	@cargo test
 
 install: target/release/steamos-manager target/release/steamosctl
+	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/interaces/"
 	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/services/"
 	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/system-services/"
 	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/system.d/"
@@ -28,6 +29,8 @@ install: target/release/steamos-manager target/release/steamosctl
 	install -D -m644 LICENSE "$(DESTDIR)/usr/share/licenses/steamos-manager/LICENSE"
 
 	install -m644 "data/platform.toml" "$(DESTDIR)/usr/share/steamos-manager/"
+
+	install -D -m644 -t "$(DESTDIR)/usr/share/dbus-1/interfaces" "data/interfaces/"*
 
 	install -m644 "data/system/com.steampowered.SteamOSManager1.service" "$(DESTDIR)/usr/share/dbus-1/system-services/"
 	install -m644 "data/system/com.steampowered.SteamOSManager1.conf" "$(DESTDIR)/usr/share/dbus-1/system.d/"

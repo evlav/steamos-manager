@@ -213,7 +213,7 @@ mod test {
                 .await
                 .expect("remove");
         let local = testing::InterfaceIntrospection::from_local(
-            "../com.steampowered.SteamOSManager1.xml",
+            "../data/interfaces/com.steampowered.SteamOSManager1.xml",
             UdevDbusObject::name().to_string(),
         )
         .await
