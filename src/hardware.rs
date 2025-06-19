@@ -472,6 +472,36 @@ pub mod test {
     }
 
     #[tokio::test]
+    async fn board_lookup_legion_go_2_83n0() {
+        let _h = setup_board("LENOVO\n", "INVALID\n", "83N0\n")
+            .await
+            .unwrap();
+        assert_eq!(
+            steam_deck_variant().await.unwrap(),
+            SteamDeckVariant::Unknown
+        );
+        assert_eq!(
+            device_variant().await.unwrap(),
+            (String::from("legion_go_2"), String::from("83N0"))
+        );
+    }
+
+    #[tokio::test]
+    async fn board_lookup_legion_go_2_83n1() {
+        let _h = setup_board("LENOVO\n", "INVALID\n", "83N1\n")
+            .await
+            .unwrap();
+        assert_eq!(
+            steam_deck_variant().await.unwrap(),
+            SteamDeckVariant::Unknown
+        );
+        assert_eq!(
+            device_variant().await.unwrap(),
+            (String::from("legion_go_2"), String::from("83N1"))
+        );
+    }
+
+    #[tokio::test]
     async fn board_lookup_steam_deck_jupiter() {
         let _h = setup_board("Valve\n", "Jupiter\n", "Jupiter\n")
             .await

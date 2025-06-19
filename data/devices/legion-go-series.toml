@@ -7,26 +7,44 @@ variant = "83E1"
 [[device]]
 dmi.sys_vendor = "LENOVO"
 dmi.product_name = "83L3"
+# Legion Go S 8ARP1 - Z2 Go SKU1
 device = "legion_go_s"
 variant = "83L3"
 
 [[device]]
 dmi.sys_vendor = "LENOVO"
 dmi.product_name = "83N6"
+# Legion Go S 8APU1 - Z1E SKU1
 device = "legion_go_s"
 variant = "83N6"
 
 [[device]]
 dmi.sys_vendor = "LENOVO"
 dmi.product_name = "83Q2"
+# Legion Go S 8ARP1 - Z2 Go SKU2
 device = "legion_go_s"
 variant = "83Q2"
 
 [[device]]
 dmi.sys_vendor = "LENOVO"
 dmi.product_name = "83Q3"
+# Legion Go S 8APU1 - Z1E SKU2
 device = "legion_go_s"
 variant = "83Q3"
+
+[[device]]
+dmi.sys_vendor = "LENOVO"
+dmi.product_name = "83N0"
+# Legion Go 8ASP2 - Z2E SKU
+device = "legion_go_2"
+variant = "83N0"
+
+[[device]]
+dmi.sys_vendor = "LENOVO"
+dmi.product_name = "83N1"
+# Legion Go 8AHP2 - Z2 SKU
+device = "legion_go_2"
+variant = "83N1"
 
 [performance_profile]
 platform_profile_name = "lenovo-wmi-gamezone"
