@@ -28,6 +28,7 @@ mod process;
 mod sls;
 mod systemd;
 mod udev;
+mod uinput;
 
 pub mod cec;
 pub mod daemon;
