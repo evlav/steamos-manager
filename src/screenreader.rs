@@ -445,13 +445,11 @@ impl<'dbus> OrcaManager<'dbus> {
 
     async fn restart_orca(&self) -> Result<()> {
         trace!("Restarting orca...");
-        self.orca_unit.enable().await?;
         self.orca_unit.restart().await
     }
 
     async fn stop_orca(&self) -> Result<()> {
         trace!("Stopping orca...");
-        self.orca_unit.disable().await?;
         self.orca_unit.stop().await
     }
 }
@@ -459,8 +457,7 @@ impl<'dbus> OrcaManager<'dbus> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::systemd::test::{MockManager, MockUnit};
-    use crate::systemd::EnableState;
+    use crate::systemd::test::MockUnit;
     use crate::testing;
     use input_linux::{Key, KeyState};
     use std::time::Duration;
@@ -483,10 +480,6 @@ mod test {
             .at("/org/freedesktop/systemd1/unit/orca_2eservice", unit)
             .await
             .expect("at");
-        object_server
-            .at("/org/freedesktop/systemd1", MockManager::default())
-            .await
-            .expect("at");
 
         sleep(Duration::from_millis(10)).await;
 
@@ -500,12 +493,10 @@ mod test {
         manager.set_enabled(true).await.unwrap();
         assert_eq!(manager.enabled(), true);
         assert_eq!(unit.active().await.unwrap(), true);
-        assert_eq!(unit.enabled().await.unwrap(), EnableState::Enabled);
 
         manager.set_enabled(false).await.unwrap();
         assert_eq!(manager.enabled(), false);
         assert_eq!(unit.active().await.unwrap(), false);
-        assert_eq!(unit.enabled().await.unwrap(), EnableState::Disabled);
 
         copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
             .await
@@ -515,12 +506,10 @@ mod test {
         manager.set_enabled(true).await.unwrap();
         assert_eq!(manager.enabled(), true);
         assert_eq!(unit.active().await.unwrap(), true);
-        assert_eq!(unit.enabled().await.unwrap(), EnableState::Enabled);
 
         manager.set_enabled(false).await.unwrap();
         assert_eq!(manager.enabled(), false);
         assert_eq!(unit.active().await.unwrap(), false);
-        assert_eq!(unit.enabled().await.unwrap(), EnableState::Disabled);
     }
 
     #[tokio::test]
