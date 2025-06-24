@@ -11,9 +11,10 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::sync::mpsc::{unbounded_channel, Sender};
+use tracing::subscriber::set_global_default;
 use tracing::{error, info};
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{fmt, Registry};
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 #[cfg(not(test))]
 use xdg::BaseDirectories;
 use zbus::connection::{Builder, Connection};
@@ -151,7 +152,9 @@ pub async fn daemon() -> Result<()> {
     // level things. It implements com.steampowered.SteamOSManager1.Manager interface
 
     let stdout_log = fmt::layer();
-    let subscriber = Registry::default().with(stdout_log);
+    let subscriber = Registry::default()
+        .with(stdout_log)
+        .with(EnvFilter::from_default_env());
     let (tx, rx) = channel::<UserContext>();
 
     let (session, system, mirror_service, tdp_service, signal_relay_service) =
@@ -163,11 +166,12 @@ pub async fn daemon() -> Result<()> {
                 bail!(e);
             }
         };
+    set_global_default(subscriber)?;
 
     let context = UserContext {
         session: session.clone(),
     };
-    let mut daemon = Daemon::new(subscriber, system, rx).await?;
+    let mut daemon = Daemon::new(system, rx).await?;
 
     daemon.add_service(signal_relay_service);
     daemon.add_service(mirror_service);

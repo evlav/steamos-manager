@@ -12,8 +12,9 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
+use tracing::subscriber::set_global_default;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{fmt, Registry};
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 use zbus::connection::{Builder, Connection};
 
 use crate::daemon::{channel, Daemon, DaemonCommand, DaemonContext};
@@ -23,6 +24,7 @@ use crate::manager::root::SteamOSManager;
 use crate::path;
 use crate::power::SysfsWriterService;
 use crate::sls::ftrace::Ftrace;
+use crate::sls::{LogLayer, LogReceiver};
 
 #[derive(Copy, Clone, Default, Deserialize, Debug)]
 #[serde(default)]
@@ -184,7 +186,9 @@ pub async fn daemon() -> Result<()> {
     // level things. It implements com.steampowered.SteamOSManager1.RootManager interface
 
     let stdout_log = fmt::layer();
-    let subscriber = Registry::default().with(stdout_log);
+    let subscriber = Registry::default()
+        .with(stdout_log)
+        .with(EnvFilter::from_default_env());
     let (tx, rx) = channel::<RootContext>();
 
     let connection = match create_connection(tx.clone()).await {
@@ -195,9 +199,14 @@ pub async fn daemon() -> Result<()> {
             bail!(e);
         }
     };
+    let log_receiver = LogReceiver::new(connection.clone()).await?;
+    let remote_logger = LogLayer::new(&log_receiver);
+    let subscriber = subscriber.with(remote_logger);
+    set_global_default(subscriber)?;
 
     let context = RootContext::new(tx);
-    let mut daemon = Daemon::new(subscriber, connection.clone(), rx).await?;
+    let mut daemon = Daemon::new(connection.clone(), rx).await?;
+    daemon.add_service(log_receiver);
 
     daemon.run(context).await
 }

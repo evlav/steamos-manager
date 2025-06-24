@@ -14,13 +14,9 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::EnvFilter;
 use zbus::connection::Connection;
 
 use crate::daemon::config::{read_config, read_state, write_state};
-use crate::sls::{LogLayer, LogReceiver};
 use crate::Service;
 
 mod config;
@@ -72,28 +68,19 @@ pub(crate) enum DaemonCommand<T> {
 }
 
 impl<C: DaemonContext> Daemon<C> {
-    pub(crate) async fn new<S: SubscriberExt + Send + Sync + for<'a> LookupSpan<'a>>(
-        subscriber: S,
+    pub(crate) async fn new(
         connection: Connection,
         channel: Receiver<DaemonCommand<C::Command>>,
     ) -> Result<Daemon<C>> {
         let services = JoinSet::new();
         let token = CancellationToken::new();
 
-        let log_receiver = LogReceiver::new(connection.clone()).await?;
-        let remote_logger = LogLayer::new(&log_receiver);
-        let subscriber = subscriber
-            .with(EnvFilter::from_default_env())
-            .with(remote_logger);
-        tracing::subscriber::set_global_default(subscriber)?;
-
-        let mut daemon = Daemon {
+        let daemon = Daemon {
             services,
             token,
             connection,
             channel,
         };
-        daemon.add_service(log_receiver);
 
         Ok(daemon)
     }
