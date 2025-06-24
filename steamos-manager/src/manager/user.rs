@@ -1105,11 +1105,12 @@ async fn create_device_interfaces(
 pub(crate) async fn create_interfaces(
     session: Connection,
     system: Connection,
+    root: Connection,
     daemon: Sender<Command>,
     job_manager: UnboundedSender<JobManagerCommand>,
     tdp_manager: Option<UnboundedSender<TdpManagerCommand>>,
 ) -> Result<SignalRelayService> {
-    let proxy = Builder::<Proxy>::new(&system)
+    let proxy = Builder::<Proxy>::new(&root)
         .destination("com.steampowered.SteamOSManager1")?
         .path("/com/steampowered/SteamOSManager1")?
         .interface("com.steampowered.SteamOSManager1.RootManager")?
@@ -1117,7 +1118,7 @@ pub(crate) async fn create_interfaces(
         .build()
         .await?;
 
-    let manager = SteamOSManager::new(system.clone(), proxy.clone(), job_manager.clone()).await?;
+    let manager = SteamOSManager::new(root.clone(), proxy.clone(), job_manager.clone()).await?;
 
     let als = AmbientLightSensor1 {
         proxy: proxy.clone(),
@@ -1349,6 +1350,7 @@ mod test {
             .set(|_, _| Ok((0, String::from("Interface wlan0"))));
         power::test::create_nodes().await?;
         create_interfaces(
+            connection.clone(),
             connection.clone(),
             connection.clone(),
             tx_ctx,
