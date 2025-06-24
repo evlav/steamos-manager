@@ -100,14 +100,14 @@ impl LogLayer {
 impl<S: Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>> Layer<S> for LogLayer {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         let target = event.metadata().target();
-        if !target.starts_with("steamos_workerd::sls") {
+        if !target.starts_with("steamos_manager::sls") {
             // Don't forward non-SLS-related logs to SLS
             return;
         }
         let target = target
             .split("::")
             .skip(2)
-            .fold(String::from("steamos_workerd"), |prefix, suffix| {
+            .fold(String::from("steamos_manager"), |prefix, suffix| {
                 prefix + "." + suffix
             });
         let level = match *event.metadata().level() {
