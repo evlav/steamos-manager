@@ -20,7 +20,7 @@ use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use strum::{Display, EnumString};
 use tokio::fs::{read_to_string, write};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{error, info, trace, warn};
 #[cfg(not(test))]
 use xdg::BaseDirectories;
 use zbus::Connection;
