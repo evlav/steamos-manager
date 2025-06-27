@@ -170,8 +170,8 @@ impl<'dbus> OrcaManager<'dbus> {
         Ok(())
     }
 
-    pub fn get_voices(&self, locale: &str) -> Option<Vec<String>> {
-        self.voices_by_language.get(locale).cloned()
+    pub fn get_voices(&self) -> HashMap<String, Vec<String>> {
+        self.voices_by_language.clone()
     }
 
     pub fn get_voice_locales(&self) -> Vec<String> {

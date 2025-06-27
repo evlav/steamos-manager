@@ -360,6 +360,11 @@
     <property name="VoiceLocales" type="as" access="read"/>
 
     <!--
+        Map of voice names per locale
+    -->
+    <property name="VoicesForLocale" type="a{sas}" access="read"/>
+
+    <!--
         Trigger Action
 
         Forward a user interaction event to the screen reader service.
@@ -384,19 +389,6 @@
     <method name="TriggerAction">
       <arg type="u" name="action" direction="in"/>
       <arg type="t" name="timestamp" direction="in"/>
-    </method>
-
-    <!--
-        Get the voices for a given locale
-
-        Get a list of voices for a given locale
-
-        @locale: The locale to get the voices for. e.g. en-US
-        @voices: A list of voice names to present to the user
-    -->
-    <method name="GetVoicesForLocale">
-      <arg type="s" name="locale" direction="in"/>
-      <arg type="as" name="voices" direction="out"/>
     </method>
 
   </interface>

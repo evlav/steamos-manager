@@ -734,6 +734,11 @@ impl ScreenReader0 {
         self.screen_reader.get_voice_locales()
     }
 
+    #[zbus(property)]
+    async fn voices_for_locale(&self) -> HashMap<String, Vec<String>> {
+        self.screen_reader.get_voices()
+    }
+
     async fn trigger_action(&mut self, a: u32, timestamp: u64) -> fdo::Result<()> {
         let action = match ScreenReaderAction::try_from(a) {
             Ok(action) => action,
@@ -743,12 +748,6 @@ impl ScreenReader0 {
             .trigger_action(action, timestamp)
             .await
             .map_err(to_zbus_fdo_error)
-    }
-
-    async fn get_voices(&self, locale: &str) -> fdo::Result<Vec<String>> {
-        self.screen_reader
-            .get_voices(locale)
-            .ok_or(fdo::Error::Failed(String::from("No voices found")))
     }
 }
 
