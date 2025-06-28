@@ -8,6 +8,7 @@
 
 use anyhow::{Error, Result};
 use std::collections::HashMap;
+use tokio::fs::try_exists;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
@@ -25,6 +26,7 @@ use crate::hardware::{
     device_config, device_type, device_variant, steam_deck_variant, SteamDeckVariant,
 };
 use crate::job::JobManagerCommand;
+use crate::path;
 use crate::platform::platform_config;
 use crate::power::{
     get_available_cpu_scaling_governors, get_available_gpu_performance_levels,
@@ -1138,7 +1140,9 @@ pub(crate) async fn create_interfaces(
 
     object_server.at(MANAGER_PATH, manager2).await?;
 
-    object_server.at(MANAGER_PATH, screen_reader).await?;
+    if try_exists(path("/usr/bin/orca")).await? {
+        object_server.at(MANAGER_PATH, screen_reader).await?;
+    }
 
     if steam_deck_variant().await.unwrap_or_default() == SteamDeckVariant::Galileo {
         object_server.at(MANAGER_PATH, wifi_debug).await?;
@@ -1174,7 +1178,7 @@ mod test {
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::time::Duration;
-    use tokio::fs::{set_permissions, write};
+    use tokio::fs::{create_dir_all, set_permissions, write};
     use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
     use tokio::time::sleep;
     use zbus::object_server::Interface;
@@ -1278,6 +1282,9 @@ mod test {
         let exe_path = path("exe");
         write(&exe_path, "").await?;
         set_permissions(&exe_path, PermissionsExt::from_mode(0o700)).await?;
+
+        create_dir_all(path("/usr/bin")).await?;
+        write(path("/usr/bin/orca"), "").await?;
 
         handle
             .test
