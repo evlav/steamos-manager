@@ -94,6 +94,11 @@ impl<'dbus> SystemdUnit<'dbus> {
         let expected_error = format!("Unit {name} not loaded.");
         match manager.get_unit(name).await {
             Ok(_) => Ok(true),
+            Err(zbus::Error::MethodError(name, _, _))
+                if name == "org.freedesktop.systemd1.NoSuchUnit" =>
+            {
+                Ok(false)
+            }
             Err(zbus::Error::Failure(message)) if message == expected_error => Ok(false),
             Err(e) => Err(e.into()),
         }
