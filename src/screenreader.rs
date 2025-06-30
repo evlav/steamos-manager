@@ -39,6 +39,12 @@ use crate::uinput::UInputDevice;
 const TEST_ORCA_SETTINGS: &str = "data/test-orca-settings.conf";
 #[cfg(test)]
 const ORCA_SETTINGS: &str = "orca-settings.conf";
+#[cfg(test)]
+const TEST_VOICE_NAME: &str = "testvoice";
+#[cfg(test)]
+const TEST_VOICE_LANGUAGE: &str = "testvoicelanguage";
+#[cfg(test)]
+const TEST_VOICE_VARIANT: &str = "testvoicevariant";
 
 #[cfg(not(test))]
 const ORCA_SETTINGS: &str = "orca/user-settings.conf";
@@ -138,7 +144,6 @@ impl<'dbus> OrcaManager<'dbus> {
             Key::Up,
         ])?;
 
-        #[cfg(not(test))]
         match manager.init_voice_list() {
             Ok(()) => trace!("Voice list loaded"),
             Err(e) => error!("Unable to init voice list. {e}"),
@@ -172,6 +177,21 @@ impl<'dbus> OrcaManager<'dbus> {
 
     pub fn get_voices(&self) -> HashMap<String, Vec<String>> {
         self.voices_by_language.clone()
+    }
+
+    #[cfg(test)]
+    fn init_voice_list(&mut self) -> Result<()> {
+        let test_voice = Voice {
+            name: TEST_VOICE_NAME.to_string(),
+            language: TEST_VOICE_LANGUAGE.to_string(),
+            variant: Some(TEST_VOICE_VARIANT.to_string()),
+        };
+        self.voices.insert(TEST_VOICE_NAME.to_string(), test_voice);
+        self.voices_by_language
+            .entry(TEST_VOICE_LANGUAGE.to_string())
+            .or_default()
+            .push(TEST_VOICE_NAME.to_string());
+        Ok(())
     }
 
     pub fn get_voice_locales(&self) -> Vec<String> {
@@ -742,6 +762,27 @@ mod test {
             .unwrap();
         let nofile_result = manager.set_volume(7.0).await;
         assert_eq!(manager.volume(), 5.0);
+        assert!(nofile_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_voice() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        let set_result = manager.set_voice(TEST_VOICE_NAME).await;
+        assert!(set_result.is_ok());
+        assert_eq!(manager.voice(), TEST_VOICE_NAME);
+
+        remove_file(h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let nofile_result = manager.set_voice(TEST_VOICE_NAME).await;
+        assert_eq!(manager.voice(), TEST_VOICE_NAME);
         assert!(nofile_result.is_err());
     }
 
