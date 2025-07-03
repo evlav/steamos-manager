@@ -177,9 +177,12 @@ pub(crate) enum SysfsWritten {
     Superseded,
 }
 
+type SysfsQueue = (Vec<u8>, oneshot::Sender<SysfsWritten>);
+type SysfsQueueMap = HashMap<PathBuf, SysfsQueue>;
+
 #[derive(Debug)]
 struct SysfsWriterQueue {
-    values: Mutex<HashMap<PathBuf, (Vec<u8>, oneshot::Sender<SysfsWritten>)>>,
+    values: Mutex<SysfsQueueMap>,
     notify: Notify,
 }
 

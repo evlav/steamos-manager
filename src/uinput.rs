@@ -76,7 +76,7 @@ impl UInputDevice {
         ensure!(!self.open, "Cannot reopen uinput handle");
 
         self.handle.set_evbit(EventKind::Key)?;
-        for key in keybits.into_iter().copied() {
+        for key in keybits.iter().copied() {
             self.handle.set_keybit(key)?;
         }
 
