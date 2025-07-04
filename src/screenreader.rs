@@ -109,6 +109,10 @@ pub(crate) struct OrcaManager<'dbus> {
     voices_by_language: HashMap<String, Vec<String>>,
 }
 
+fn default_map() -> Value {
+    Value::Object(Map::new())
+}
+
 impl<'dbus> OrcaManager<'dbus> {
     pub async fn new(connection: &Connection) -> Result<OrcaManager<'dbus>> {
         let mut manager = OrcaManager {
@@ -146,7 +150,7 @@ impl<'dbus> OrcaManager<'dbus> {
 
         match manager.init_voice_list() {
             Ok(()) => trace!("Voice list loaded"),
-            Err(e) => error!("Unable to init voice list. {e}"),
+            Err(e) => error!("Unable to init voice list: {e}"),
         }
 
         Ok(manager)
@@ -161,22 +165,20 @@ impl<'dbus> OrcaManager<'dbus> {
             .name;
         let connection =
             SDConnection::open(CLIENT_NAME, CONNECTION_NAME, &user_name, Mode::Threaded)?;
-        let voices = connection.list_synthesis_voices()?.to_vec();
-        for v in voices.iter() {
-            let name = &v.name;
-            let lang = &v.language;
-            self.voices.insert(name.clone(), v.clone());
+        let voices = connection.list_synthesis_voices()?;
+        for v in voices.into_iter() {
             self.voices_by_language
-                .entry(lang.clone())
+                .entry(v.language.clone())
                 .or_default()
-                .push(name.clone());
+                .push(v.name.clone());
+            self.voices.insert(v.name.clone(), v);
         }
 
         Ok(())
     }
 
-    pub fn get_voices(&self) -> HashMap<String, Vec<String>> {
-        self.voices_by_language.clone()
+    pub fn get_voices(&self) -> &HashMap<String, Vec<String>> {
+        &self.voices_by_language
     }
 
     #[cfg(test)]
@@ -194,8 +196,8 @@ impl<'dbus> OrcaManager<'dbus> {
         Ok(())
     }
 
-    pub fn get_voice_locales(&self) -> Vec<String> {
-        self.voices_by_language.keys().cloned().collect()
+    pub fn get_voice_locales(&self) -> Vec<&str> {
+        self.voices_by_language.keys().map(String::as_str).collect()
     }
 
     #[cfg(not(test))]
@@ -241,8 +243,8 @@ impl<'dbus> OrcaManager<'dbus> {
         Ok(())
     }
 
-    pub fn voice(&self) -> String {
-        self.voice.clone()
+    pub fn voice(&self) -> &str {
+        self.voice.as_str()
     }
 
     pub async fn set_voice(&mut self, voice: &str) -> Result<()> {
@@ -423,7 +425,7 @@ impl<'dbus> OrcaManager<'dbus> {
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf json is not an object"))?
             .entry("general")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         general
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf general is not an object"))?
@@ -511,35 +513,38 @@ impl<'dbus> OrcaManager<'dbus> {
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf json is not an object"))?
             .entry("profiles")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         let default_profile = profiles
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf profiles is not an object"))?
             .entry("default")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         let voices = default_profile
             .as_object_mut()
             .ok_or(anyhow!(
                 "orca user-settings.conf default profile is not an object"
             ))?
             .entry("voices")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         let default_voice = voices
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf voices is not an object"))?
             .entry("default")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         let family = default_voice
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf family is not an object"))?
             .entry("family")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         // If we have a dialect use it, otherwise leave it blank
-        let mut language = voice.language.clone();
-        let mut dialect = "";
+        let language;
+        let dialect;
         if let Some((l, d)) = voice.language.split_once("-") {
-            language = l.to_string();
+            language = l;
             dialect = d;
+        } else {
+            language = voice.language.as_str();
+            dialect = "";
         }
         let mut_family = family.as_object_mut().ok_or(anyhow!(
             "orca user-settings.conf default voice family is not an object"
@@ -580,24 +585,24 @@ impl<'dbus> OrcaManager<'dbus> {
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf json is not an object"))?
             .entry("profiles")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         let default_profile = profiles
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf profiles is not an object"))?
             .entry("default")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         let voices = default_profile
             .as_object_mut()
             .ok_or(anyhow!(
                 "orca user-settings.conf default profile is not an object"
             ))?
             .entry("voices")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         let default_voice = voices
             .as_object_mut()
             .ok_or(anyhow!("orca user-settings.conf voices is not an object"))?
             .entry("default")
-            .or_insert(Value::Object(Map::new()));
+            .or_insert_with(default_map);
         default_voice
             .as_object_mut()
             .ok_or(anyhow!(

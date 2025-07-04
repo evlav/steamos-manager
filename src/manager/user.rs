@@ -308,11 +308,7 @@ impl CpuScaling1 {
         let governors = get_available_cpu_scaling_governors()
             .await
             .map_err(to_zbus_fdo_error)?;
-        let mut result = Vec::new();
-        for g in governors {
-            result.push(g.to_string());
-        }
-        Ok(result)
+        Ok(governors.into_iter().map(|g| g.to_string()).collect())
     }
 
     #[zbus(property)]
@@ -712,7 +708,7 @@ impl ScreenReader0 {
     }
 
     #[zbus(property)]
-    async fn voice(&self) -> String {
+    async fn voice(&self) -> &str {
         self.screen_reader.voice()
     }
 
@@ -730,13 +726,13 @@ impl ScreenReader0 {
     }
 
     #[zbus(property)]
-    async fn voice_locales(&self) -> Vec<String> {
+    async fn voice_locales(&self) -> Vec<&str> {
         self.screen_reader.get_voice_locales()
     }
 
     #[zbus(property)]
     async fn voices_for_locale(&self) -> HashMap<String, Vec<String>> {
-        self.screen_reader.get_voices()
+        self.screen_reader.get_voices().clone()
     }
 
     async fn trigger_action(&mut self, a: u32, timestamp: u64) -> fdo::Result<()> {
