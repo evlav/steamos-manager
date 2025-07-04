@@ -30,5 +30,5 @@ clippy:
   tags:
     - x86_64-linux-kvm-docker
   script:
-    - pacman -Sy --noconfirm --needed rust
+    - pacman -Sy --noconfirm --needed rust clang
     - cargo clippy
