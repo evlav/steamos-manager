@@ -24,3 +24,11 @@ fmt:
   script:
     - pacman -Sy --noconfirm --needed rust
     - cargo fmt --check
+
+clippy:
+  stage: test
+  tags:
+    - x86_64-linux-kvm-docker
+  script:
+    - pacman -Sy --noconfirm --needed rust
+    - cargo clippy
