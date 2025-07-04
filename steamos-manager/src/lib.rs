@@ -18,6 +18,8 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+pub use steamos_manager_proxy as proxy;
+
 mod ds_inhibit;
 mod error;
 mod inputplumber;
@@ -34,7 +36,6 @@ pub mod cec;
 pub mod daemon;
 pub mod hardware;
 pub mod power;
-pub mod proxy;
 pub mod screenreader;
 pub mod wifi;
 

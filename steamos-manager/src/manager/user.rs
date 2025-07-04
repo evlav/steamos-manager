@@ -1345,7 +1345,7 @@ mod test {
         .await
         .expect("remote");
         let local = testing::InterfaceIntrospection::from_local(
-            "com.steampowered.SteamOSManager1.Manager.xml",
+            "../com.steampowered.SteamOSManager1.Manager.xml",
             "com.steampowered.SteamOSManager1.Manager",
         )
         .await
@@ -1357,7 +1357,7 @@ mod test {
         let remote =
             testing::InterfaceIntrospection::from_remote::<I, _>(connection, MANAGER_PATH).await?;
         let local = testing::InterfaceIntrospection::from_local(
-            "com.steampowered.SteamOSManager1.xml",
+            "../com.steampowered.SteamOSManager1.xml",
             I::name().to_string(),
         )
         .await?;

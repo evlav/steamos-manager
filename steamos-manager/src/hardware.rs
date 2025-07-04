@@ -33,7 +33,7 @@ const PRODUCT_NAME_PATH: &str = "/sys/class/dmi/id/product_name";
 #[cfg(not(test))]
 const DEVICE_CONFIG_PATH: &str = "/usr/share/steamos-manager/devices";
 #[cfg(test)]
-const DEVICE_CONFIG_PATH: &str = "data/devices";
+const DEVICE_CONFIG_PATH: &str = "../data/devices";
 
 #[derive(Display, EnumString, PartialEq, Debug, Default, Copy, Clone)]
 #[strum(serialize_all = "snake_case", ascii_case_insensitive)]

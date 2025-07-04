@@ -118,7 +118,7 @@ impl MockDBus {
             .args([
                 "--nofork",
                 "--print-address",
-                "--config-file=data/test-dbus.conf",
+                "--config-file=../data/test-dbus.conf",
             ])
             .stdout(Stdio::piped())
             .spawn()?;
