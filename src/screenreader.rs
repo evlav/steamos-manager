@@ -6,7 +6,7 @@
  */
 
 use ::sysinfo::System;
-use anyhow::{anyhow, bail, ensure, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use gio::{prelude::SettingsExt, Settings};
 use input_linux::Key;
 use lazy_static::lazy_static;
@@ -20,7 +20,7 @@ use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use strum::{Display, EnumString};
 use tokio::fs::{read_to_string, write};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{error, info, trace, warn};
 #[cfg(not(test))]
 use xdg::BaseDirectories;
 use zbus::Connection;
@@ -327,7 +327,10 @@ impl<'dbus> OrcaManager<'dbus> {
 
     async fn set_orca_enabled(&mut self, enabled: bool) -> Result<()> {
         // Change json file
-        let data = read_to_string(self.settings_path()?).await?;
+        let path = self.settings_path()?;
+        let data = read_to_string(&path)
+            .await
+            .with_context(|| format!("Unable to read from {}", path.display()))?;
         let mut json: Value = serde_json::from_str(&data)?;
 
         let general = json
@@ -345,8 +348,10 @@ impl<'dbus> OrcaManager<'dbus> {
     }
 
     async fn load_values(&mut self) -> Result<()> {
-        debug!("Loading orca values from user-settings.conf");
-        let data = read_to_string(self.settings_path()?).await?;
+        let path = self.settings_path()?;
+        let data = read_to_string(&path)
+            .await
+            .with_context(|| format!("Unable to read from {}", path.display()))?;
         let json: Value = serde_json::from_str(&data)?;
 
         let Some(default_voice) = json
@@ -405,7 +410,10 @@ impl<'dbus> OrcaManager<'dbus> {
         } else {
             bail!("Invalid orca option {option}");
         }
-        let data = read_to_string(self.settings_path()?).await?;
+        let path = self.settings_path()?;
+        let data = read_to_string(&path)
+            .await
+            .with_context(|| format!("Unable to read from {}", path.display()))?;
         let mut json: Value = serde_json::from_str(&data)?;
 
         let profiles = json

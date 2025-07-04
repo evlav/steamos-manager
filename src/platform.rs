@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#[cfg(not(test))]
+use anyhow::Context;
 use anyhow::Result;
 use nix::errno::Errno;
 use nix::unistd::{access, AccessFlags};
@@ -173,7 +175,10 @@ impl FormatDeviceConfig {
 impl PlatformConfig {
     #[cfg(not(test))]
     async fn load() -> Result<Option<PlatformConfig>> {
-        let config = read_to_string("/usr/share/steamos-manager/platform.toml").await?;
+        let path = "/usr/share/steamos-manager/platform.toml";
+        let config = read_to_string(path)
+            .await
+            .with_context(|| format!("Failed to read {path}"))?;
         Ok(Some(toml::from_str(config.as_ref())?))
     }
 
