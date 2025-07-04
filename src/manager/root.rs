@@ -2,6 +2,7 @@
  * Copyright © 2023 Collabora Ltd.
  * Copyright © 2024 Valve Software
  * Copyright © 2024 Igalia S.L.
+ * Copyright © 2025 Harald Sitter <sitter@kde.org>
  *
  * SPDX-License-Identifier: MIT
  */
@@ -33,6 +34,9 @@ use crate::power::{
     GPUPerformanceLevel, GPUPowerProfile, SysfsWritten, TdpLimitManager,
 };
 use crate::process::{run_script, script_output};
+use crate::session_management::{
+    clear_ephemeral_session, set_session_to_switch_to, write_default_desktop_session_type, write_default_session_type
+};
 use crate::wifi::{
     extract_wifi_trace, generate_wifi_dump, set_wifi_backend, set_wifi_debug_mode,
     set_wifi_power_management_state, WifiBackend, WifiDebugMode, WifiPowerManagement,
@@ -485,6 +489,30 @@ impl SteamOSManager {
             )))?;
         set_platform_profile(&config.platform_profile_name, profile)
             .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn set_session_to_switch_to(&self, ty: &str) -> fdo::Result<()> {
+        set_session_to_switch_to(ty)
+            .await
+            .inspect_err(|message| error!("Error switching to session: {message}"))
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn set_default_desktop_session_type(&mut self, ty: &str) -> fdo::Result<()> {
+        write_default_desktop_session_type(ty)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn set_default_session_type(&mut self, ty: &str) -> fdo::Result<()> {
+        write_default_session_type(ty)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn set_login_successful(&mut self) -> fdo::Result<()> {
+        clear_ephemeral_session().await
             .map_err(to_zbus_fdo_error)
     }
 

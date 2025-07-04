@@ -7,6 +7,7 @@
   Copyright © 2023 Collabora Ltd.
   Copyright © 2024 Igalia S.L.
   Copyright © 2024 Valve Corporation.
+  Copyright © 2025 Harald Sitter <sitter@kde.org>
   SPDX-License-Identifier: MIT
 -->
 
@@ -678,6 +679,65 @@
       <signal name="JobStarted">
         <arg type="o" name="job"/>
       </signal>
+
+  </interface>
+
+  <!--
+      com.steampowered.SteamOSManager1.SessionManagement1
+      @short_description: Interface to manage session types.
+
+      Valid values include all sessions available in /usr/share/xsessions and /usr/share/wayland-sessions.
+  -->
+  <interface name="com.steampowered.SteamOSManager1.SessionManagement1">
+
+    <!--
+        DefaultSessionType:
+
+        The default session type to use when booting the system.
+
+        Valid values include all sessions available in /usr/share/xsessions and /usr/share/wayland-sessions.
+    -->
+    <property name="DefaultSessionType" type="s" access="readwrite"/>
+
+    <!--
+        DefaultDesktopSessionType:
+
+        The default session type to use when starting desktop mode.
+
+        Valid values include all sessions available in /usr/share/xsessions and /usr/share/wayland-sessions.
+    -->
+    <property name="DefaultDesktopSessionType" type="s" access="readwrite"/>
+
+    <!--
+        SwitchToSession:
+
+        Switch to the provided session type. This will change the session type temporarily and stop the running
+        session. The login manager will then log into the new session type.
+
+        Note that resetting this temporary type needs to happen as part of the login. steamos-manager will not
+        automatically reset the session type on its own!
+
+        Valid values include all sessions available in /usr/share/xsessions and /usr/share/wayland-sessions.
+    -->
+    <method name="SwitchToSession">
+      <arg type="s" name="type" direction="in"/>
+    </method>
+
+    <!--
+        SwitchToGameMode:
+
+        Convenience method to switch to the game mode session type.
+    -->
+    <method name="SwitchToGameMode">
+    </method>
+
+    <!--
+        SwitchToDesktopMode:
+
+        Convenience method to switch to the desktop mode session type (adheres to DefaultDesktopSessionType)
+    -->
+    <method name="SwitchToDesktopMode">
+    </method>
 
   </interface>
 
