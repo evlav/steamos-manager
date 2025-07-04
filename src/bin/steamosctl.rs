@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{ArgAction, Parser, Subcommand};
 use itertools::Itertools;
 use nix::time::{clock_gettime, ClockId};
@@ -252,6 +252,24 @@ enum Commands {
     SetScreenReaderMode {
         /// Valid modes are `browse`, `focus`
         mode: ScreenReaderMode,
+    },
+
+    /// Get screen reader known locales
+    GetScreenReaderLocales,
+
+    /// Get screen reader voices for given locale
+    GetScreenReaderVoicesForLocale {
+        /// Valid locales can be found using get-screen-reader-locales.
+        locale: String,
+    },
+
+    /// Get screen reader voice
+    GetScreenReaderVoice,
+
+    /// Set screen reader voice
+    SetScreenReaderVoice {
+        /// The voice name to use for screen reader. Valid voices can be found using get-screen-reader-voices-for-locale
+        voice: String,
     },
 
     /// Trigger screen reader action
@@ -637,6 +655,34 @@ async fn main() -> Result<()> {
             proxy
                 .trigger_action(*action as u32, now.try_into()?)
                 .await?;
+        }
+        Commands::GetScreenReaderVoice => {
+            let proxy = ScreenReader0Proxy::new(&conn).await?;
+            let voice = proxy.voice().await?;
+            println!("Voice: {voice}");
+        }
+        Commands::SetScreenReaderVoice { voice } => {
+            let proxy = ScreenReader0Proxy::new(&conn).await?;
+            proxy.set_voice(voice).await?;
+        }
+        Commands::GetScreenReaderLocales => {
+            let proxy = ScreenReader0Proxy::new(&conn).await?;
+            let locales = proxy.voice_locales().await?;
+            println!("Locales:\n");
+            for locale in locales.into_iter().sorted() {
+                println!("- {locale}");
+            }
+        }
+        Commands::GetScreenReaderVoicesForLocale { locale } => {
+            let proxy = ScreenReader0Proxy::new(&conn).await?;
+            let voice_list = proxy.voices_for_locale().await?;
+            let voices = voice_list
+                .get(locale)
+                .ok_or_else(|| anyhow!("Unable to load voices map"))?;
+            println!("Voices:\n");
+            for voice in voices.iter().sorted() {
+                println!("- {voice}");
+            }
         }
     }
 

@@ -711,6 +711,34 @@ impl ScreenReader0 {
         self.mode_changed(&ctx).await.map_err(to_zbus_fdo_error)
     }
 
+    #[zbus(property)]
+    async fn voice(&self) -> String {
+        self.screen_reader.voice()
+    }
+
+    #[zbus(property)]
+    async fn set_voice(
+        &mut self,
+        voice: &str,
+        #[zbus(signal_emitter)] ctx: SignalEmitter<'_>,
+    ) -> fdo::Result<()> {
+        self.screen_reader
+            .set_voice(voice)
+            .await
+            .map_err(to_zbus_fdo_error)?;
+        self.voice_changed(&ctx).await.map_err(to_zbus_fdo_error)
+    }
+
+    #[zbus(property)]
+    async fn voice_locales(&self) -> Vec<String> {
+        self.screen_reader.get_voice_locales()
+    }
+
+    #[zbus(property)]
+    async fn voices_for_locale(&self) -> HashMap<String, Vec<String>> {
+        self.screen_reader.get_voices()
+    }
+
     async fn trigger_action(&mut self, a: u32, timestamp: u64) -> fdo::Result<()> {
         let action = match ScreenReaderAction::try_from(a) {
             Ok(action) => action,

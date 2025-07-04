@@ -344,6 +344,27 @@
     <property name="Mode" type="u" access="readwrite"/>
 
     <!--
+        Voice
+
+        The voice to use for screen reading.
+
+        Valid voices can be found from GetVoicesForLocale
+    -->
+    <property name="Voice" type="s" access="readwrite"/>
+
+    <!--
+        Voice Locales
+
+        The list of known voice locales
+    -->
+    <property name="VoiceLocales" type="as" access="read"/>
+
+    <!--
+        Map of voice names per locale
+    -->
+    <property name="VoicesForLocale" type="a{sas}" access="read"/>
+
+    <!--
         Trigger Action
 
         Forward a user interaction event to the screen reader service.
@@ -369,6 +390,7 @@
       <arg type="u" name="action" direction="in"/>
       <arg type="t" name="timestamp" direction="in"/>
     </method>
+
   </interface>
 
   <!--

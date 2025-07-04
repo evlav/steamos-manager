@@ -19,11 +19,20 @@ use zbus::proxy;
     assume_defaults = true
 )]
 pub trait ScreenReader0 {
+    /// TriggerAction method
+    fn trigger_action(&self, action: u32, timestamp: u64) -> zbus::Result<()>;
+
     /// Enabled property
     #[zbus(property)]
     fn enabled(&self) -> zbus::Result<bool>;
     #[zbus(property)]
     fn set_enabled(&self, value: bool) -> zbus::Result<()>;
+
+    /// Mode property
+    #[zbus(property)]
+    fn mode(&self) -> zbus::Result<u32>;
+    #[zbus(property)]
+    fn set_mode(&self, value: u32) -> zbus::Result<()>;
 
     /// Pitch property
     #[zbus(property)]
@@ -37,17 +46,23 @@ pub trait ScreenReader0 {
     #[zbus(property)]
     fn set_rate(&self, value: f64) -> zbus::Result<()>;
 
+    /// Voice property
+    #[zbus(property)]
+    fn voice(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn set_voice(&self, value: &str) -> zbus::Result<()>;
+
+    /// VoiceLocales property
+    #[zbus(property)]
+    fn voice_locales(&self) -> zbus::Result<Vec<String>>;
+
+    /// VoicesForLocale property
+    #[zbus(property)]
+    fn voices_for_locale(&self) -> zbus::Result<std::collections::HashMap<String, Vec<String>>>;
+
     /// Volume property
     #[zbus(property)]
     fn volume(&self) -> zbus::Result<f64>;
     #[zbus(property)]
     fn set_volume(&self, value: f64) -> zbus::Result<()>;
-
-    /// Mode property
-    #[zbus(property)]
-    fn mode(&self) -> zbus::Result<u32>;
-    #[zbus(property)]
-    fn set_mode(&self, mode: u32) -> zbus::Result<()>;
-
-    fn trigger_action(&self, action: u32, timestamp: u64) -> zbus::Result<()>;
 }

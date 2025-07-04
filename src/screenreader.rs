@@ -12,8 +12,13 @@ use input_linux::Key;
 use lazy_static::lazy_static;
 use nix::sys::signal;
 use nix::unistd::Pid;
+#[cfg(not(test))]
+use nix::unistd::{Uid, User};
 use num_enum::TryFromPrimitive;
 use serde_json::{Map, Value};
+use speech_dispatcher::Voice;
+#[cfg(not(test))]
+use speech_dispatcher::{Connection as SDConnection, Mode};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::ops::RangeInclusive;
@@ -34,12 +39,20 @@ use crate::uinput::UInputDevice;
 const TEST_ORCA_SETTINGS: &str = "data/test-orca-settings.conf";
 #[cfg(test)]
 const ORCA_SETTINGS: &str = "orca-settings.conf";
+#[cfg(test)]
+const TEST_VOICE_NAME: &str = "testvoice";
+#[cfg(test)]
+const TEST_VOICE_LANGUAGE: &str = "testvoicelanguage";
+#[cfg(test)]
+const TEST_VOICE_VARIANT: &str = "testvoicevariant";
 
 #[cfg(not(test))]
 const ORCA_SETTINGS: &str = "orca/user-settings.conf";
 const PITCH_SETTING: &str = "average-pitch";
 const RATE_SETTING: &str = "rate";
 const VOLUME_SETTING: &str = "gain";
+const FAMILY_SETTING: &str = "family";
+const VOICE_NAME_SETTING: &str = "name";
 const ENABLE_SETTING: &str = "enableSpeech";
 
 const A11Y_SETTING: &str = "org.gnome.desktop.a11y.applications";
@@ -49,6 +62,7 @@ const KEYBOARD_NAME: &str = "steamos-manager";
 const PITCH_DEFAULT: f64 = 5.0;
 const RATE_DEFAULT: f64 = 50.0;
 const VOLUME_DEFAULT: f64 = 10.0;
+const VOICE_NAME_DEFAULT: &str = "default";
 
 lazy_static! {
     static ref VALID_SETTINGS: HashMap<&'static str, RangeInclusive<f64>> = HashMap::from_iter([
@@ -89,7 +103,10 @@ pub(crate) struct OrcaManager<'dbus> {
     volume: f64,
     enabled: bool,
     mode: ScreenReaderMode,
+    voice: String,
     keyboard: UInputDevice,
+    voices: HashMap<String, Voice>,
+    voices_by_language: HashMap<String, Vec<String>>,
 }
 
 impl<'dbus> OrcaManager<'dbus> {
@@ -102,7 +119,10 @@ impl<'dbus> OrcaManager<'dbus> {
             enabled: true,
             // Always start in browse mode for now, since we have no storage to remember this property
             mode: ScreenReaderMode::Browse,
+            voice: String::new(),
             keyboard: UInputDevice::new()?,
+            voices: HashMap::new(),
+            voices_by_language: HashMap::new(),
         };
         let _ = manager
             .load_values()
@@ -124,7 +144,58 @@ impl<'dbus> OrcaManager<'dbus> {
             Key::Up,
         ])?;
 
+        match manager.init_voice_list() {
+            Ok(()) => trace!("Voice list loaded"),
+            Err(e) => error!("Unable to init voice list. {e}"),
+        }
+
         Ok(manager)
+    }
+
+    #[cfg(not(test))]
+    fn init_voice_list(&mut self) -> Result<()> {
+        const CLIENT_NAME: &str = "steamos-manager";
+        const CONNECTION_NAME: &str = "steamos-manager";
+        let user_name = User::from_uid(Uid::current())?
+            .ok_or(anyhow!("Unable to get current user"))?
+            .name;
+        let connection =
+            SDConnection::open(CLIENT_NAME, CONNECTION_NAME, &user_name, Mode::Threaded)?;
+        let voices = connection.list_synthesis_voices()?.to_vec();
+        for v in voices.iter() {
+            let name = &v.name;
+            let lang = &v.language;
+            self.voices.insert(name.clone(), v.clone());
+            self.voices_by_language
+                .entry(lang.clone())
+                .or_default()
+                .push(name.clone());
+        }
+
+        Ok(())
+    }
+
+    pub fn get_voices(&self) -> HashMap<String, Vec<String>> {
+        self.voices_by_language.clone()
+    }
+
+    #[cfg(test)]
+    fn init_voice_list(&mut self) -> Result<()> {
+        let test_voice = Voice {
+            name: TEST_VOICE_NAME.to_string(),
+            language: TEST_VOICE_LANGUAGE.to_string(),
+            variant: Some(TEST_VOICE_VARIANT.to_string()),
+        };
+        self.voices.insert(TEST_VOICE_NAME.to_string(), test_voice);
+        self.voices_by_language
+            .entry(TEST_VOICE_LANGUAGE.to_string())
+            .or_default()
+            .push(TEST_VOICE_NAME.to_string());
+        Ok(())
+    }
+
+    pub fn get_voice_locales(&self) -> Vec<String> {
+        self.voices_by_language.keys().cloned().collect()
     }
 
     #[cfg(not(test))]
@@ -167,6 +238,21 @@ impl<'dbus> OrcaManager<'dbus> {
             self.stop_orca().await?;
         }
         self.enabled = enable;
+        Ok(())
+    }
+
+    pub fn voice(&self) -> String {
+        self.voice.clone()
+    }
+
+    pub async fn set_voice(&mut self, voice: &str) -> Result<()> {
+        let properties = self
+            .voices
+            .get(voice)
+            .ok_or(anyhow!("Invalid voice specified"))?;
+        self.set_orca_voice(properties).await?;
+        self.voice = voice.to_string();
+        self.reload_orca().await?;
         Ok(())
     }
 
@@ -398,7 +484,81 @@ impl<'dbus> OrcaManager<'dbus> {
             self.rate, self.pitch, self.volume
         );
 
+        if let Some(family) = default_voice.get(FAMILY_SETTING) {
+            if let Some(name) = family.get(VOICE_NAME_SETTING) {
+                self.voice = name
+                    .as_str()
+                    .unwrap_or_else(|| {
+                        error!("Unable to convert orca default voice family name to string value");
+                        VOICE_NAME_DEFAULT
+                    })
+                    .to_string();
+            } else {
+                warn!("Unable to load default voice family name from orca user-settings.conf");
+            }
+        } else {
+            warn!("Unable to load default voice family from orca user-settings.conf");
+        }
+
         Ok(())
+    }
+
+    async fn set_orca_voice(&self, voice: &Voice) -> Result<()> {
+        let data = read_to_string(self.settings_path()?).await?;
+        let mut json: Value = serde_json::from_str(&data)?;
+
+        let profiles = json
+            .as_object_mut()
+            .ok_or(anyhow!("orca user-settings.conf json is not an object"))?
+            .entry("profiles")
+            .or_insert(Value::Object(Map::new()));
+        let default_profile = profiles
+            .as_object_mut()
+            .ok_or(anyhow!("orca user-settings.conf profiles is not an object"))?
+            .entry("default")
+            .or_insert(Value::Object(Map::new()));
+        let voices = default_profile
+            .as_object_mut()
+            .ok_or(anyhow!(
+                "orca user-settings.conf default profile is not an object"
+            ))?
+            .entry("voices")
+            .or_insert(Value::Object(Map::new()));
+        let default_voice = voices
+            .as_object_mut()
+            .ok_or(anyhow!("orca user-settings.conf voices is not an object"))?
+            .entry("default")
+            .or_insert(Value::Object(Map::new()));
+        let family = default_voice
+            .as_object_mut()
+            .ok_or(anyhow!("orca user-settings.conf family is not an object"))?
+            .entry("family")
+            .or_insert(Value::Object(Map::new()));
+        // If we have a dialect use it, otherwise leave it blank
+        let mut language = voice.language.clone();
+        let mut dialect = "";
+        if let Some((l, d)) = voice.language.split_once("-") {
+            language = l.to_string();
+            dialect = d;
+        }
+        let mut_family = family.as_object_mut().ok_or(anyhow!(
+            "orca user-settings.conf default voice family is not an object"
+        ))?;
+        mut_family.insert("name".to_string(), voice.name.clone().into());
+        mut_family.insert("lang".to_string(), language.into());
+        mut_family.insert("variant".to_string(), voice.variant.clone().into());
+        mut_family.insert("dialect".to_string(), dialect.into());
+
+        // Set established property
+        default_voice
+            .as_object_mut()
+            .ok_or(anyhow!(
+                "orca user-settings.conf default voice is not an object"
+            ))?
+            .insert("established".to_string(), true.into());
+
+        let data = serde_json::to_string_pretty(&json)?;
+        Ok(write(self.settings_path()?, data.as_bytes()).await?)
     }
 
     async fn set_orca_option(&self, option: &str, value: f64) -> Result<()> {
@@ -602,6 +762,27 @@ mod test {
             .unwrap();
         let nofile_result = manager.set_volume(7.0).await;
         assert_eq!(manager.volume(), 5.0);
+        assert!(nofile_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_voice() {
+        let mut h = testing::start();
+        copy(TEST_ORCA_SETTINGS, h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let mut manager = OrcaManager::new(&h.new_dbus().await.expect("new_dbus"))
+            .await
+            .expect("OrcaManager::new");
+        let set_result = manager.set_voice(TEST_VOICE_NAME).await;
+        assert!(set_result.is_ok());
+        assert_eq!(manager.voice(), TEST_VOICE_NAME);
+
+        remove_file(h.test.path().join(ORCA_SETTINGS))
+            .await
+            .unwrap();
+        let nofile_result = manager.set_voice(TEST_VOICE_NAME).await;
+        assert_eq!(manager.voice(), TEST_VOICE_NAME);
         assert!(nofile_result.is_err());
     }
 
