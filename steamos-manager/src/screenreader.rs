@@ -36,7 +36,7 @@ use crate::systemd::SystemdUnit;
 use crate::uinput::UInputDevice;
 
 #[cfg(test)]
-const TEST_ORCA_SETTINGS: &str = "data/test-orca-settings.conf";
+const TEST_ORCA_SETTINGS: &str = "../data/test-orca-settings.conf";
 #[cfg(test)]
 const ORCA_SETTINGS: &str = "orca-settings.conf";
 #[cfg(test)]
