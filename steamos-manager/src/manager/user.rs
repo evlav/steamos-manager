@@ -1111,12 +1111,6 @@ pub(crate) async fn create_interfaces(
         channel: daemon,
     };
     let screen_reader = ScreenReader0::new(&session).await?;
-    let wifi_debug = WifiDebug1 {
-        proxy: proxy.clone(),
-    };
-    let wifi_debug_dump = WifiDebugDump1 {
-        proxy: proxy.clone(),
-    };
     let wifi_power_management = WifiPowerManagement1 {
         proxy: proxy.clone(),
     };
@@ -1131,6 +1125,13 @@ pub(crate) async fn create_interfaces(
         object_server.at(MANAGER_PATH, als).await?;
     }
     if steam_deck_variant().await.unwrap_or_default() == SteamDeckVariant::Galileo {
+        let wifi_debug = WifiDebug1 {
+            proxy: proxy.clone(),
+        };
+        let wifi_debug_dump = WifiDebugDump1 {
+            proxy: proxy.clone(),
+        };
+        object_server.at(MANAGER_PATH, wifi_debug).await?;
         object_server.at(MANAGER_PATH, wifi_debug_dump).await?;
     }
 
@@ -1166,10 +1167,6 @@ pub(crate) async fn create_interfaces(
 
     if try_exists(path("/usr/bin/orca")).await? {
         object_server.at(MANAGER_PATH, screen_reader).await?;
-    }
-
-    if steam_deck_variant().await.unwrap_or_default() == SteamDeckVariant::Galileo {
-        object_server.at(MANAGER_PATH, wifi_debug).await?;
     }
 
     if !list_wifi_interfaces().await.unwrap_or_default().is_empty() {
