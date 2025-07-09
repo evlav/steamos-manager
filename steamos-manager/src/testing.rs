@@ -185,6 +185,14 @@ impl TestHandle {
     pub async fn dbus_address(&self) -> Option<Address> {
         (*self.test.dbus_address.lock().await).clone()
     }
+
+    pub async fn new_connection(&self) -> Result<Connection> {
+        Ok(
+            Builder::address(self.dbus_address().await.ok_or(anyhow!("No address"))?)?
+                .build()
+                .await?,
+        )
+    }
 }
 
 impl Drop for TestHandle {
