@@ -38,7 +38,7 @@ pub(crate) trait DaemonContext: Sized {
 
     fn user_config_path(&self) -> Result<PathBuf>;
     fn system_config_path(&self) -> Result<PathBuf>;
-    fn state(&self) -> Self::State;
+    fn state(&self) -> &Self::State;
 
     async fn start(
         &mut self,

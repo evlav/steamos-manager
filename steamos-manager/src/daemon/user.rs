@@ -71,8 +71,8 @@ impl DaemonContext for UserContext {
         Ok(path("/usr/share/steamos-manager/user.d"))
     }
 
-    fn state(&self) -> UserState {
-        UserState::default()
+    fn state(&self) -> &UserState {
+        &self.state
     }
 
     async fn start(

@@ -111,8 +111,8 @@ impl DaemonContext for RootContext {
         Ok(path("/usr/share/steamos-manager/system.d"))
     }
 
-    fn state(&self) -> RootState {
-        self.state
+    fn state(&self) -> &RootState {
+        &self.state
     }
 
     async fn start(
