@@ -34,6 +34,7 @@ use crate::power::{
     TdpLimitManager,
 };
 use crate::process::{run_script, script_output};
+use crate::session::root::{clean_temporary_sessions, set_default_session, set_temporary_session};
 use crate::wifi::{
     extract_wifi_trace, generate_wifi_dump, set_wifi_backend, set_wifi_debug_mode,
     set_wifi_power_management_state, WifiBackend, WifiDebugMode, WifiPowerManagement,
@@ -85,6 +86,8 @@ impl SteamOSManager {
 )]
 pub(crate) trait RootManager {
     fn set_tdp_limit(&self, limit: u32) -> zbus::Result<()>;
+    fn set_temporary_session(&self, session: &str) -> zbus::Result<()>;
+    fn set_default_session(&self, session: &str) -> zbus::Result<()>;
 }
 
 #[interface(name = "com.steampowered.SteamOSManager1.RootManager")]
@@ -502,6 +505,22 @@ impl SteamOSManager {
         set_platform_profile(&config.platform_profile_name, profile)
             .await
             .map_err(to_zbus_fdo_error)
+    }
+
+    async fn set_temporary_session(&self, session: &str) -> fdo::Result<()> {
+        set_temporary_session(session)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn set_default_session(&self, session: &str) -> fdo::Result<()> {
+        set_default_session(session)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn clean_temporary_sessions(&self) -> fdo::Result<()> {
+        clean_temporary_sessions().await.map_err(to_zbus_fdo_error)
     }
 
     /// A version property.
