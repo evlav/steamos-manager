@@ -114,8 +114,8 @@ mod test {
             Ok(path("system"))
         }
 
-        fn state(&self) -> TestState {
-            self.state
+        fn state(&self) -> &TestState {
+            &self.state
         }
 
         async fn start(
