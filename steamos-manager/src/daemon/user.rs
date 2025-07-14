@@ -47,6 +47,7 @@ pub(crate) struct UserServicesState {}
 
 pub(crate) struct UserContext {
     session: Connection,
+    state: UserState,
 }
 
 impl DaemonContext for UserContext {
@@ -170,6 +171,7 @@ pub async fn daemon() -> Result<()> {
 
     let context = UserContext {
         session: session.clone(),
+        state: UserState::default(),
     };
     let mut daemon = Daemon::new(system, rx).await?;
 
