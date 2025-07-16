@@ -4,7 +4,7 @@ Wants=steamos-log-submitter.service
 After=steamos-log-submitter.service
 
 [Service]
-Type=dbus
+Type=notify-signal
 BusName=com.steampowered.SteamOSManager1
 Environment=RUST_LOG=info
 ExecStart=/usr/lib/steamos-manager -r
