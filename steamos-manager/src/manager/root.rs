@@ -39,25 +39,6 @@ use crate::wifi::{
 };
 use crate::{path, API_VERSION};
 
-macro_rules! with_platform_config {
-    ($config:ident = $field:ident ($name:literal) => $eval:expr) => {
-        if let Some(config) = platform_config()
-            .await
-            .map_err(to_zbus_fdo_error)?
-            .as_ref()
-            .and_then(|config| config.$field.as_ref())
-        {
-            let $config = config;
-            $eval
-        } else {
-            Err(fdo::Error::NotSupported(format!(
-                "{} is not supported on this platform",
-                $name
-            )))
-        }
-    };
-}
-
 #[derive(PartialEq, Debug, Copy, Clone)]
 #[repr(u32)]
 enum PrepareFactoryResetResult {
@@ -106,29 +87,31 @@ pub(crate) trait RootManager {
 impl SteamOSManager {
     async fn prepare_factory_reset(&self, kind: u32) -> fdo::Result<u32> {
         // Run steamos-reset with arguments based on flags passed and return 1 on success
-        with_platform_config! {
-            config = factory_reset("PrepareFactoryReset") => {
-                let res =
-                match FactoryResetKind::try_from(kind) {
-                    Ok(FactoryResetKind::User) => {
-                        run_script(&config.user.script, &config.user.script_args).await
-                    },
-                    Ok(FactoryResetKind::OS) => {
-                        run_script(&config.os.script, &config.os.script_args).await
-                    },
-                    Ok(FactoryResetKind::All) => {
-                        run_script(&config.all.script, &config.all.script_args).await
-                    },
-                    Err(_) => {
-                        Err(anyhow!("Unable to generate command arguments for steamos-reset-tool script"))
-                    }
-                };
-                Ok(match res {
-                    Ok(()) => PrepareFactoryResetResult::RebootRequired as u32,
-                    Err(_) => PrepareFactoryResetResult::Unknown as u32,
-                })
+        let config = platform_config().await.map_err(to_zbus_fdo_error)?;
+        let Some(config) = config
+            .as_ref()
+            .and_then(|config| config.factory_reset.as_ref())
+        else {
+            return Err(fdo::Error::NotSupported(String::from(
+                "PrepareFactoryReset is not supported on this platform",
+            )));
+        };
+        let res = match FactoryResetKind::try_from(kind) {
+            Ok(FactoryResetKind::User) => {
+                run_script(&config.user.script, &config.user.script_args).await
             }
-        }
+            Ok(FactoryResetKind::OS) => run_script(&config.os.script, &config.os.script_args).await,
+            Ok(FactoryResetKind::All) => {
+                run_script(&config.all.script, &config.all.script_args).await
+            }
+            Err(_) => Err(anyhow!(
+                "Unable to generate command arguments for steamos-reset-tool script"
+            )),
+        };
+        Ok(match res {
+            Ok(()) => PrepareFactoryResetResult::RebootRequired as u32,
+            Err(_) => PrepareFactoryResetResult::Unknown as u32,
+        })
     }
 
     async fn set_wifi_power_management_state(&self, state: u32) -> fdo::Result<()> {
@@ -213,35 +196,51 @@ impl SteamOSManager {
 
     async fn update_bios(&mut self) -> fdo::Result<zvariant::OwnedObjectPath> {
         // Update the bios as needed
-        with_platform_config! {
-            config = update_bios ("UpdateBios") => {
-                self.job_manager
-                    .run_process(&config.script, &config.script_args, "updating BIOS")
-                    .await
-            }
-        }
+        let config = platform_config().await.map_err(to_zbus_fdo_error)?;
+        let Some(config) = config
+            .as_ref()
+            .and_then(|config| config.update_bios.as_ref())
+        else {
+            return Err(fdo::Error::NotSupported(String::from(
+                "UpdateBios is not supported on this platform",
+            )));
+        };
+        self.job_manager
+            .run_process(&config.script, &config.script_args, "updating BIOS")
+            .await
     }
 
     async fn update_dock(&mut self) -> fdo::Result<zvariant::OwnedObjectPath> {
         // Update the dock firmware as needed
-        with_platform_config! {
-            config = update_dock ("UpdateDock") => {
-                self.job_manager
-                    .run_process(&config.script, &config.script_args, "updating dock")
-                    .await
-            }
-        }
+        let config = platform_config().await.map_err(to_zbus_fdo_error)?;
+        let Some(config) = config
+            .as_ref()
+            .and_then(|config| config.update_dock.as_ref())
+        else {
+            return Err(fdo::Error::NotSupported(String::from(
+                "UpdateDock is not supported on this platform",
+            )));
+        };
+        self.job_manager
+            .run_process(&config.script, &config.script_args, "updating dock")
+            .await
     }
 
     async fn trim_devices(&mut self) -> fdo::Result<zvariant::OwnedObjectPath> {
         // Run steamos-trim-devices script
-        with_platform_config! {
-            config = storage ("TrimDevices") => {
-                self.job_manager
-                    .run_process(&config.trim_devices.script, config.trim_devices.script_args.as_ref(), "trimming devices")
-                    .await
-            }
-        }
+        let config = platform_config().await.map_err(to_zbus_fdo_error)?;
+        let Some(config) = config.as_ref().and_then(|config| config.storage.as_ref()) else {
+            return Err(fdo::Error::NotSupported(String::from(
+                "TrimDevices is not supported on this platform",
+            )));
+        };
+        self.job_manager
+            .run_process(
+                &config.trim_devices.script,
+                config.trim_devices.script_args.as_ref(),
+                "trimming devices",
+            )
+            .await
     }
 
     async fn format_device(
@@ -250,33 +249,35 @@ impl SteamOSManager {
         label: &str,
         validate: bool,
     ) -> fdo::Result<zvariant::OwnedObjectPath> {
-        with_platform_config! {
-            config = storage ("FormatDevice") => {
-                let config = &config.format_device;
-                let mut args: Vec<&OsStr> = config.script_args.iter().map(AsRef::as_ref).collect();
+        let config = platform_config().await.map_err(to_zbus_fdo_error)?;
+        let Some(config) = config.as_ref().and_then(|config| config.storage.as_ref()) else {
+            return Err(fdo::Error::NotSupported(String::from(
+                "FormatDevice is not supported on this platform",
+            )));
+        };
+        let config = &config.format_device;
+        let mut args: Vec<&OsStr> = config.script_args.iter().map(AsRef::as_ref).collect();
 
-                args.extend_from_slice(&[OsStr::new(config.label_flag.as_str()), OsStr::new(label)]);
+        args.extend_from_slice(&[OsStr::new(config.label_flag.as_str()), OsStr::new(label)]);
 
-                match (validate, &config.validate_flag, &config.no_validate_flag) {
-                    (true, Some(validate_flag), _) => args.push(OsStr::new(validate_flag)),
-                    (false, _, Some(no_validate_flag)) => args.push(OsStr::new(no_validate_flag)),
-                    _ => (),
-                }
-
-                if let Some(device_flag) = &config.device_flag {
-                    args.push(OsStr::new(device_flag));
-                }
-                args.push(OsStr::new(device));
-
-                self.job_manager
-                    .run_process(
-                        &config.script,
-                        &args,
-                        format!("formatting {device}").as_str(),
-                    )
-                    .await
-            }
+        match (validate, &config.validate_flag, &config.no_validate_flag) {
+            (true, Some(validate_flag), _) => args.push(OsStr::new(validate_flag)),
+            (false, _, Some(no_validate_flag)) => args.push(OsStr::new(no_validate_flag)),
+            _ => (),
         }
+
+        if let Some(device_flag) = &config.device_flag {
+            args.push(OsStr::new(device_flag));
+        }
+        args.push(OsStr::new(device));
+
+        self.job_manager
+            .run_process(
+                &config.script,
+                &args,
+                format!("formatting {device}").as_str(),
+            )
+            .await
     }
 
     async fn set_gpu_power_profile(&self, value: &str) -> fdo::Result<()> {
