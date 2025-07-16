@@ -16,7 +16,7 @@ test:
 	@cargo test
 
 install: target/release/steamos-manager target/release/steamosctl
-	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/interaces/"
+	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/interfaces/"
 	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/services/"
 	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/system-services/"
 	install -d -m0755 "$(DESTDIR)/usr/share/dbus-1/system.d/"
