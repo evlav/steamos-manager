@@ -103,6 +103,26 @@ pub enum CPUScalingGovernor {
     SchedUtil,
 }
 
+#[derive(Display, EnumString, PartialEq, Debug, Copy, Clone, TryFromPrimitive)]
+#[strum(ascii_case_insensitive)]
+#[repr(u32)]
+pub enum CPUBoostState {
+    #[strum(
+        to_string = "disabled",
+        serialize = "off",
+        serialize = "disable",
+        serialize = "0"
+    )]
+    Disabled = 0,
+    #[strum(
+        to_string = "enabled",
+        serialize = "on",
+        serialize = "enable",
+        serialize = "1"
+    )]
+    Enabled = 1,
+}
+
 #[derive(Display, EnumString, VariantNames, PartialEq, Debug, Clone)]
 #[strum(serialize_all = "snake_case")]
 pub enum TdpLimitingMethod {
@@ -297,6 +317,21 @@ async fn write_cpu_governor_sysfs_contents(contents: String) -> Result<()> {
     }
 }
 
+async fn read_cpu_boost_sysfs_contents() -> Result<String> {
+    // Unlike governor, boost has a single global sysfs entry on most frequency scaling drivers
+    let base = path(CPU_PREFIX).join("boost");
+    fs::read_to_string(&base)
+        .await
+        .map_err(|message| anyhow!("Error opening sysfs file for reading {message}"))
+}
+
+async fn write_cpu_boost_sysfs_contents(data: &[u8]) -> Result<()> {
+    let base = path(CPU_PREFIX).join("boost");
+    write_synced(&base, data)
+        .await
+        .inspect_err(|message| error!("Error writing to sysfs file: {message}"))
+}
+
 pub(crate) async fn get_gpu_power_profile() -> Result<GPUPowerProfile> {
     // check which profile is current and return if possible
     let contents = read_gpu_sysfs_contents(GPU_POWER_PROFILE_SUFFIX).await?;
@@ -415,6 +450,26 @@ pub(crate) async fn set_cpu_scaling_governor(governor: CPUScalingGovernor) -> Re
     // Set the given governor on all cpus
     let name = governor.to_string();
     write_cpu_governor_sysfs_contents(name).await
+}
+
+pub(crate) async fn get_cpu_boost_state() -> Result<CPUBoostState> {
+    let contents = read_cpu_boost_sysfs_contents().await?;
+    let contents = contents.trim();
+    match contents {
+        "1" => Ok(CPUBoostState::Enabled),
+        "0" => Ok(CPUBoostState::Disabled),
+        _ => Err(anyhow!("Invalid CPU boost state: {contents}")),
+    }
+}
+
+pub(crate) async fn set_cpu_boost_state(state: CPUBoostState) -> Result<()> {
+    let contents = match state {
+        CPUBoostState::Enabled => "1",
+        CPUBoostState::Disabled => "0",
+    };
+    write_cpu_boost_sysfs_contents(contents.as_bytes())
+        .await
+        .inspect_err(|message| error!("Error writing to sysfs file: {message}"))
 }
 
 pub(crate) async fn get_gpu_clocks_range() -> Result<RangeInclusive<u32>> {

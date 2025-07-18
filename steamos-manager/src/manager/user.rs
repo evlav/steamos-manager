@@ -30,9 +30,9 @@ use crate::path;
 use crate::platform::platform_config;
 use crate::power::{
     get_available_cpu_scaling_governors, get_available_gpu_performance_levels,
-    get_available_gpu_power_profiles, get_available_platform_profiles, get_cpu_scaling_governor,
-    get_gpu_clocks, get_gpu_clocks_range, get_gpu_performance_level, get_gpu_power_profile,
-    get_max_charge_level, get_platform_profile, TdpManagerCommand,
+    get_available_gpu_power_profiles, get_available_platform_profiles, get_cpu_boost_state,
+    get_cpu_scaling_governor, get_gpu_clocks, get_gpu_clocks_range, get_gpu_performance_level,
+    get_gpu_power_profile, get_max_charge_level, get_platform_profile, TdpManagerCommand,
 };
 use crate::screenreader::{OrcaManager, ScreenReaderAction, ScreenReaderMode};
 use crate::wifi::{
@@ -112,6 +112,10 @@ struct AmbientLightSensor1 {
 }
 
 struct BatteryChargeLimit1 {
+    proxy: Proxy<'static>,
+}
+
+struct CpuBoost1 {
     proxy: Proxy<'static>,
 }
 
@@ -298,6 +302,31 @@ impl BatteryChargeLimit1 {
         config
             .suggested_minimum_limit
             .unwrap_or(BatteryChargeLimit1::DEFAULT_SUGGESTED_MINIMUM_LIMIT)
+    }
+}
+
+#[interface(name = "com.steampowered.SteamOSManager1.CpuBoost1")]
+impl CpuBoost1 {
+    #[zbus(property)]
+    async fn cpu_boost_state(&self) -> fdo::Result<u32> {
+        match get_cpu_boost_state().await {
+            Ok(state) => Ok(state as u32),
+            Err(e) => Err(to_zbus_fdo_error(e)),
+        }
+    }
+
+    #[zbus(property)]
+    async fn set_cpu_boost_state(
+        &self,
+        state: u32,
+        #[zbus(signal_emitter)] ctx: SignalEmitter<'_>,
+    ) -> zbus::Result<()> {
+        let _: () = self
+            .proxy
+            .call("SetCpuBoostState", &(state))
+            .await
+            .map_err(to_zbus_fdo_error)?;
+        self.cpu_boost_state_changed(&ctx).await
     }
 }
 
@@ -1096,6 +1125,9 @@ pub(crate) async fn create_interfaces(
     let battery_charge_limit = BatteryChargeLimit1 {
         proxy: proxy.clone(),
     };
+    let cpu_boost = CpuBoost1 {
+        proxy: proxy.clone(),
+    };
     let cpu_scaling = CpuScaling1 {
         proxy: proxy.clone(),
     };
@@ -1137,6 +1169,10 @@ pub(crate) async fn create_interfaces(
 
     if get_max_charge_level().await.is_ok() {
         object_server.at(MANAGER_PATH, battery_charge_limit).await?;
+    }
+
+    if get_cpu_boost_state().await.is_ok() {
+        object_server.at(MANAGER_PATH, cpu_boost).await?;
     }
 
     object_server.at(MANAGER_PATH, cpu_scaling).await?;
@@ -1391,6 +1427,17 @@ mod test {
                 .await
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn interface_matches_cpu_boost1() {
+        let test = start(all_platform_config(), all_device_config())
+            .await
+            .expect("start");
+
+        assert!(test_interface_matches::<CpuBoost1>(&test.connection)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
