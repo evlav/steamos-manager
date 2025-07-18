@@ -6,14 +6,17 @@
  */
 
 use anyhow::{anyhow, ensure, Result};
+use nix::time::{clock_gettime, ClockId};
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fmt::Debug;
 use std::path::PathBuf;
+use tokio::net::UnixDatagram;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace, warn};
 use zbus::connection::Connection;
 
 use crate::daemon::config::{read_config, read_state, write_state};
@@ -58,6 +61,7 @@ pub(crate) struct Daemon<C: DaemonContext> {
     token: CancellationToken,
     connection: Connection,
     channel: Receiver<DaemonCommand<C::Command>>,
+    notify_socket: Option<UnixDatagram>,
 }
 
 #[derive(Debug)]
@@ -80,6 +84,7 @@ impl<C: DaemonContext> Daemon<C> {
             token,
             connection,
             channel,
+            notify_socket: None,
         };
 
         Ok(daemon)
@@ -97,6 +102,34 @@ impl<C: DaemonContext> Daemon<C> {
         self.connection.clone()
     }
 
+    async fn setup_notify_socket(&mut self) -> Result<()> {
+        if self.notify_socket.is_some() {
+            return Ok(());
+        }
+        let Some(notify_socket) = env::var_os("NOTIFY_SOCKET") else {
+            return Ok(());
+        };
+        let socket = UnixDatagram::unbound()?;
+        socket.connect(notify_socket)?;
+        env::remove_var("NOTIFY_SOCKET");
+        self.notify_socket = Some(socket);
+        Ok(())
+    }
+
+    async fn notify(&mut self, message: &str) {
+        if let Err(e) = self.setup_notify_socket().await {
+            warn!("Couldn't set up systemd notify socket: {e}");
+            return;
+        }
+        let Some(ref socket) = self.notify_socket else {
+            return;
+        };
+        trace!("Sending message to systemd: {message}");
+        if let Err(e) = socket.send(message.as_bytes()).await {
+            warn!("Couldn't notify systemd: {e}");
+        }
+    }
+
     pub(crate) async fn run(&mut self, mut context: C) -> Result<()> {
         ensure!(
             !self.services.is_empty(),
@@ -107,6 +140,9 @@ impl<C: DaemonContext> Daemon<C> {
         let config = read_config(&context).await?;
         debug!("Starting daemon with state: {state:#?}, config: {config:#?}");
         context.start(state, config, self).await?;
+
+        // Tell systemd we're done loading
+        self.notify("READY=1\n").await;
 
         let mut res = loop {
             let mut sigterm = signal(SignalKind::terminate())?;
@@ -132,14 +168,25 @@ impl<C: DaemonContext> Daemon<C> {
                 },
                 e = sighup.recv() => match e {
                     Some(()) => {
-                        match read_config(&context).await {
+                        match clock_gettime(ClockId::CLOCK_MONOTONIC) {
+                            Ok(timestamp) => {
+                                let timestamp = timestamp.tv_sec() * 1_000_000 +
+                                    timestamp.tv_nsec() / 1_000;
+                                let notifies = format!("RELOADING=1\nMONOTONIC_USEC={timestamp}\n");
+                                self.notify(notifies.as_str()).await;
+                            }
+                            Err(e) => warn!("Failed to notify systemd: {e}"),
+                        }
+                        let res = match read_config(&context).await {
                             Ok(config) =>
                                 context.reload(config, self).await,
                             Err(error) => {
                                 error!("Failed to load configuration: {error}");
                                 Ok(())
                             }
-                        }
+                        };
+                        self.notify("READY=1\n").await;
+                        res
                     }
                     None => Err(anyhow!("SIGHUP pipe broke")),
                 },
