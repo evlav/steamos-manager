@@ -998,7 +998,7 @@ pub(crate) mod test {
         BatteryChargeLimitConfig, DeviceConfig, FirmwareAttributeConfig, PerformanceProfileConfig,
         RangeConfig, SteamDeckVariant, TdpLimitConfig,
     };
-    use crate::{enum_roundtrip, testing};
+    use crate::{enum_on_off, enum_roundtrip, testing};
     use anyhow::anyhow;
     use std::time::Duration;
     use tokio::fs::{create_dir_all, read_to_string, remove_dir, write};
@@ -1020,6 +1020,10 @@ pub(crate) mod test {
 
     pub async fn create_nodes() -> Result<()> {
         setup().await?;
+        let base = path(CPU_PREFIX);
+        create_dir_all(&base).await?;
+        write(base.join("boost"), b"1\n").await?;
+
         let base = find_hwmon(GPU_HWMON_NAME).await?;
 
         let filename = base.join(GPU_PERFORMANCE_LEVEL_SUFFIX);
@@ -1371,6 +1375,19 @@ CCLK_RANGE in Core0:
     }
 
     #[test]
+    fn cpu_boost_state_roundtrip() {
+        enum_roundtrip!(CPUBoostState {
+            0: u32 = Disabled,
+            1: u32 = Enabled,
+            "disabled": str = Disabled,
+            "enabled": str = Enabled,
+        });
+        enum_on_off!(CPUBoostState => (Enabled, Disabled));
+        assert!(CPUBoostState::try_from(2).is_err());
+        assert!(CPUBoostState::from_str("enabld").is_err());
+    }
+
+    #[test]
     fn gpu_performance_level_roundtrip() {
         enum_roundtrip!(GPUPerformanceLevel {
             "auto": str = Auto,
@@ -1681,6 +1698,39 @@ CCLK_RANGE in Core0:
             .expect("write");
 
         assert!(get_cpu_scaling_governor().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn read_cpu_boost_state() {
+        let _h = testing::start();
+
+        let base = path(CPU_PREFIX);
+        create_dir_all(&base).await.expect("create_dir_all");
+
+        write(base.join("boost"), b"1\n").await.expect("write");
+        assert_eq!(get_cpu_boost_state().await.unwrap(), CPUBoostState::Enabled);
+
+        write(base.join("boost"), b"0\n").await.expect("write");
+        assert_eq!(
+            get_cpu_boost_state().await.unwrap(),
+            CPUBoostState::Disabled
+        );
+    }
+
+    #[tokio::test]
+    async fn read_invalid_cpu_boost_state() {
+        let _h = testing::start();
+
+        let base = path(CPU_PREFIX);
+        create_dir_all(&base).await.expect("create_dir_all");
+
+        write(base.join("boost"), b"2\n").await.expect("write");
+        assert!(get_cpu_boost_state().await.is_err());
+
+        tokio::fs::remove_file(base.join("boost"))
+            .await
+            .expect("remove_file");
+        assert!(get_cpu_boost_state().await.is_err());
     }
 
     #[tokio::test]
