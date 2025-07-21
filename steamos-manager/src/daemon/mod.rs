@@ -142,7 +142,10 @@ impl<C: DaemonContext> Daemon<C> {
         debug!("Starting daemon with state: {state:#?}, config: {config:#?}");
         context.start(state, config, self).await?;
 
-        self.connection.object_server().at("/", ObjectManager {}).await?;
+        self.connection
+            .object_server()
+            .at("/", ObjectManager {})
+            .await?;
 
         // Tell systemd we're done loading
         self.notify("READY=1\n").await;

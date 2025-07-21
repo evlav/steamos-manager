@@ -169,7 +169,7 @@ pub async fn daemon() -> Result<()> {
     set_global_default(subscriber)?;
 
     let context = UserContext {
-        session: session.clone(),
+        session,
         state: UserState::default(),
     };
     let mut daemon = Daemon::new(system, rx).await?;
