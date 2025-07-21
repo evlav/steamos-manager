@@ -18,7 +18,6 @@ use tracing_subscriber::{fmt, EnvFilter, Registry};
 #[cfg(not(test))]
 use xdg::BaseDirectories;
 use zbus::connection::{Builder, Connection};
-use zbus::fdo::ObjectManager;
 
 use crate::daemon::{channel, Daemon, DaemonCommand, DaemonContext};
 use crate::job::{JobManager, JobManagerService};
@@ -182,8 +181,6 @@ pub async fn daemon() -> Result<()> {
     } else if let Err(e) = tdp_service {
         info!("TdpManagerService not available: {e}");
     }
-
-    session.object_server().at("/", ObjectManager {}).await?;
 
     daemon.run(context).await
 }

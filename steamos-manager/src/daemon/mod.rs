@@ -18,6 +18,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
 use zbus::connection::Connection;
+use zbus::fdo::ObjectManager;
 
 use crate::daemon::config::{read_config, read_state, write_state};
 use crate::Service;
@@ -140,6 +141,8 @@ impl<C: DaemonContext> Daemon<C> {
         let config = read_config(&context).await?;
         debug!("Starting daemon with state: {state:#?}, config: {config:#?}");
         context.start(state, config, self).await?;
+
+        self.connection.object_server().at("/", ObjectManager {}).await?;
 
         // Tell systemd we're done loading
         self.notify("READY=1\n").await;
