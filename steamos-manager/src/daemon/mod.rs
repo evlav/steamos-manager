@@ -62,7 +62,7 @@ pub(crate) struct Daemon<C: DaemonContext> {
     token: CancellationToken,
     connection: Connection,
     channel: Receiver<DaemonCommand<C::Command>>,
-    notify_socket: Option<UnixDatagram>,
+    notify_socket: NotifySocket,
 }
 
 #[derive(Debug)]
@@ -70,6 +70,40 @@ pub(crate) enum DaemonCommand<T> {
     ContextCommand(T),
     ReadConfig,
     WriteState,
+}
+
+#[derive(Debug, Default)]
+struct NotifySocket {
+    socket: Option<UnixDatagram>,
+}
+
+impl NotifySocket {
+    async fn setup_socket(&mut self) -> Result<()> {
+        if self.socket.is_some() {
+            return Ok(());
+        }
+        let Some(notify_socket) = env::var_os("NOTIFY_SOCKET") else {
+            return Ok(());
+        };
+        let socket = UnixDatagram::unbound()?;
+        socket.connect(notify_socket)?;
+        self.socket = Some(socket);
+        Ok(())
+    }
+
+    async fn notify(&mut self, message: &str) {
+        if let Err(e) = self.setup_socket().await {
+            warn!("Couldn't set up systemd notify socket: {e}");
+            return;
+        }
+        let Some(ref socket) = self.socket else {
+            return;
+        };
+        trace!("Sending message to systemd: {message}");
+        if let Err(e) = socket.send(message.as_bytes()).await {
+            warn!("Couldn't notify systemd: {e}");
+        }
+    }
 }
 
 impl<C: DaemonContext> Daemon<C> {
@@ -85,7 +119,7 @@ impl<C: DaemonContext> Daemon<C> {
             token,
             connection,
             channel,
-            notify_socket: None,
+            notify_socket: NotifySocket::default(),
         };
 
         Ok(daemon)
@@ -103,34 +137,6 @@ impl<C: DaemonContext> Daemon<C> {
         self.connection.clone()
     }
 
-    async fn setup_notify_socket(&mut self) -> Result<()> {
-        if self.notify_socket.is_some() {
-            return Ok(());
-        }
-        let Some(notify_socket) = env::var_os("NOTIFY_SOCKET") else {
-            return Ok(());
-        };
-        let socket = UnixDatagram::unbound()?;
-        socket.connect(notify_socket)?;
-        env::remove_var("NOTIFY_SOCKET");
-        self.notify_socket = Some(socket);
-        Ok(())
-    }
-
-    async fn notify(&mut self, message: &str) {
-        if let Err(e) = self.setup_notify_socket().await {
-            warn!("Couldn't set up systemd notify socket: {e}");
-            return;
-        }
-        let Some(ref socket) = self.notify_socket else {
-            return;
-        };
-        trace!("Sending message to systemd: {message}");
-        if let Err(e) = socket.send(message.as_bytes()).await {
-            warn!("Couldn't notify systemd: {e}");
-        }
-    }
-
     pub(crate) async fn run(&mut self, mut context: C) -> Result<()> {
         ensure!(
             !self.services.is_empty(),
@@ -142,13 +148,15 @@ impl<C: DaemonContext> Daemon<C> {
         debug!("Starting daemon with state: {state:#?}, config: {config:#?}");
         context.start(state, config, self).await?;
 
-        self.connection
-            .object_server()
-            .at("/", ObjectManager {})
-            .await?;
+        let object_server = self.connection.object_server().clone();
+        self.services.spawn(async move {
+            object_server.at("/", ObjectManager {}).await?;
 
-        // Tell systemd we're done loading
-        self.notify("READY=1\n").await;
+            // Tell systemd we're done loading
+            let mut notify_socket = NotifySocket::default();
+            notify_socket.notify("READY=1\n").await;
+            Ok(())
+        });
 
         let mut res = loop {
             let mut sigterm = signal(SignalKind::terminate())?;
@@ -179,7 +187,7 @@ impl<C: DaemonContext> Daemon<C> {
                                 let timestamp = timestamp.tv_sec() * 1_000_000 +
                                     timestamp.tv_nsec() / 1_000;
                                 let notifies = format!("RELOADING=1\nMONOTONIC_USEC={timestamp}\n");
-                                self.notify(notifies.as_str()).await;
+                                self.notify_socket.notify(notifies.as_str()).await;
                             }
                             Err(e) => warn!("Failed to notify systemd: {e}"),
                         }
@@ -191,7 +199,7 @@ impl<C: DaemonContext> Daemon<C> {
                                 Ok(())
                             }
                         };
-                        self.notify("READY=1\n").await;
+                        self.notify_socket.notify("READY=1\n").await;
                         res
                     }
                     None => Err(anyhow!("SIGHUP pipe broke")),
