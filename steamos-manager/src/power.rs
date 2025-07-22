@@ -103,6 +103,26 @@ pub enum CPUScalingGovernor {
     SchedUtil,
 }
 
+#[derive(Display, EnumString, PartialEq, Debug, Copy, Clone, TryFromPrimitive)]
+#[strum(ascii_case_insensitive)]
+#[repr(u32)]
+pub enum CPUBoostState {
+    #[strum(
+        to_string = "disabled",
+        serialize = "off",
+        serialize = "disable",
+        serialize = "0"
+    )]
+    Disabled = 0,
+    #[strum(
+        to_string = "enabled",
+        serialize = "on",
+        serialize = "enable",
+        serialize = "1"
+    )]
+    Enabled = 1,
+}
+
 #[derive(Display, EnumString, VariantNames, PartialEq, Debug, Clone)]
 #[strum(serialize_all = "snake_case")]
 pub enum TdpLimitingMethod {
@@ -297,6 +317,21 @@ async fn write_cpu_governor_sysfs_contents(contents: String) -> Result<()> {
     }
 }
 
+async fn read_cpu_boost_sysfs_contents() -> Result<String> {
+    // Unlike governor, boost has a single global sysfs entry on most frequency scaling drivers
+    let base = path(CPU_PREFIX).join("boost");
+    fs::read_to_string(&base)
+        .await
+        .map_err(|message| anyhow!("Error opening sysfs file for reading {message}"))
+}
+
+async fn write_cpu_boost_sysfs_contents(data: &[u8]) -> Result<()> {
+    let base = path(CPU_PREFIX).join("boost");
+    write_synced(&base, data)
+        .await
+        .inspect_err(|message| error!("Error writing to sysfs file: {message}"))
+}
+
 pub(crate) async fn get_gpu_power_profile() -> Result<GPUPowerProfile> {
     // check which profile is current and return if possible
     let contents = read_gpu_sysfs_contents(GPU_POWER_PROFILE_SUFFIX).await?;
@@ -415,6 +450,26 @@ pub(crate) async fn set_cpu_scaling_governor(governor: CPUScalingGovernor) -> Re
     // Set the given governor on all cpus
     let name = governor.to_string();
     write_cpu_governor_sysfs_contents(name).await
+}
+
+pub(crate) async fn get_cpu_boost_state() -> Result<CPUBoostState> {
+    let contents = read_cpu_boost_sysfs_contents().await?;
+    let contents = contents.trim();
+    match contents {
+        "1" => Ok(CPUBoostState::Enabled),
+        "0" => Ok(CPUBoostState::Disabled),
+        _ => Err(anyhow!("Invalid CPU boost state: {contents}")),
+    }
+}
+
+pub(crate) async fn set_cpu_boost_state(state: CPUBoostState) -> Result<()> {
+    let contents = match state {
+        CPUBoostState::Enabled => "1",
+        CPUBoostState::Disabled => "0",
+    };
+    write_cpu_boost_sysfs_contents(contents.as_bytes())
+        .await
+        .inspect_err(|message| error!("Error writing to sysfs file: {message}"))
 }
 
 pub(crate) async fn get_gpu_clocks_range() -> Result<RangeInclusive<u32>> {
@@ -943,7 +998,7 @@ pub(crate) mod test {
         BatteryChargeLimitConfig, DeviceConfig, FirmwareAttributeConfig, PerformanceProfileConfig,
         RangeConfig, SteamDeckVariant, TdpLimitConfig,
     };
-    use crate::{enum_roundtrip, testing};
+    use crate::{enum_on_off, enum_roundtrip, testing};
     use anyhow::anyhow;
     use std::time::Duration;
     use tokio::fs::{create_dir_all, read_to_string, remove_dir, write};
@@ -965,6 +1020,10 @@ pub(crate) mod test {
 
     pub async fn create_nodes() -> Result<()> {
         setup().await?;
+        let base = path(CPU_PREFIX);
+        create_dir_all(&base).await?;
+        write(base.join("boost"), b"1\n").await?;
+
         let base = find_hwmon(GPU_HWMON_NAME).await?;
 
         let filename = base.join(GPU_PERFORMANCE_LEVEL_SUFFIX);
@@ -1316,6 +1375,19 @@ CCLK_RANGE in Core0:
     }
 
     #[test]
+    fn cpu_boost_state_roundtrip() {
+        enum_roundtrip!(CPUBoostState {
+            0: u32 = Disabled,
+            1: u32 = Enabled,
+            "disabled": str = Disabled,
+            "enabled": str = Enabled,
+        });
+        enum_on_off!(CPUBoostState => (Enabled, Disabled));
+        assert!(CPUBoostState::try_from(2).is_err());
+        assert!(CPUBoostState::from_str("enabld").is_err());
+    }
+
+    #[test]
     fn gpu_performance_level_roundtrip() {
         enum_roundtrip!(GPUPerformanceLevel {
             "auto": str = Auto,
@@ -1626,6 +1698,39 @@ CCLK_RANGE in Core0:
             .expect("write");
 
         assert!(get_cpu_scaling_governor().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn read_cpu_boost_state() {
+        let _h = testing::start();
+
+        let base = path(CPU_PREFIX);
+        create_dir_all(&base).await.expect("create_dir_all");
+
+        write(base.join("boost"), b"1\n").await.expect("write");
+        assert_eq!(get_cpu_boost_state().await.unwrap(), CPUBoostState::Enabled);
+
+        write(base.join("boost"), b"0\n").await.expect("write");
+        assert_eq!(
+            get_cpu_boost_state().await.unwrap(),
+            CPUBoostState::Disabled
+        );
+    }
+
+    #[tokio::test]
+    async fn read_invalid_cpu_boost_state() {
+        let _h = testing::start();
+
+        let base = path(CPU_PREFIX);
+        create_dir_all(&base).await.expect("create_dir_all");
+
+        write(base.join("boost"), b"2\n").await.expect("write");
+        assert!(get_cpu_boost_state().await.is_err());
+
+        tokio::fs::remove_file(base.join("boost"))
+            .await
+            .expect("remove_file");
+        assert!(get_cpu_boost_state().await.is_err());
     }
 
     #[tokio::test]

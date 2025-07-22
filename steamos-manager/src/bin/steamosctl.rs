@@ -13,13 +13,15 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use steamos_manager::cec::HdmiCecState;
 use steamos_manager::hardware::{FactoryResetKind, FanControlState};
-use steamos_manager::power::{CPUScalingGovernor, GPUPerformanceLevel, GPUPowerProfile};
+use steamos_manager::power::{
+    CPUBoostState, CPUScalingGovernor, GPUPerformanceLevel, GPUPowerProfile,
+};
 use steamos_manager::proxy::{
-    AmbientLightSensor1Proxy, BatteryChargeLimit1Proxy, CpuScaling1Proxy, FactoryReset1Proxy,
-    FanControl1Proxy, GpuPerformanceLevel1Proxy, GpuPowerProfile1Proxy, HdmiCec1Proxy,
-    LowPowerMode1Proxy, Manager2Proxy, PerformanceProfile1Proxy, ScreenReader0Proxy, Storage1Proxy,
-    TdpLimit1Proxy, UpdateBios1Proxy, UpdateDock1Proxy, WifiDebug1Proxy, WifiDebugDump1Proxy,
-    WifiPowerManagement1Proxy,
+    AmbientLightSensor1Proxy, BatteryChargeLimit1Proxy, CpuBoost1Proxy, CpuScaling1Proxy,
+    FactoryReset1Proxy, FanControl1Proxy, GpuPerformanceLevel1Proxy, GpuPowerProfile1Proxy,
+    HdmiCec1Proxy, LowPowerMode1Proxy, Manager2Proxy, PerformanceProfile1Proxy, ScreenReader0Proxy,
+    Storage1Proxy, TdpLimit1Proxy, UpdateBios1Proxy, UpdateDock1Proxy, WifiDebug1Proxy,
+    WifiDebugDump1Proxy, WifiPowerManagement1Proxy,
 };
 use steamos_manager::screenreader::{ScreenReaderAction, ScreenReaderMode};
 use steamos_manager::wifi::{WifiBackend, WifiDebugMode, WifiPowerManagement};
@@ -61,6 +63,15 @@ enum Commands {
     SetCpuScalingGovernor {
         /// Valid governors are get-cpu-governors.
         governor: CPUScalingGovernor,
+    },
+
+    /// Get the current CPU boost state
+    GetCpuBoostState,
+
+    /// Set the CPU boost state
+    SetCpuBoostState {
+        /// Valid states are `enabled`, `disabled`
+        state: CPUBoostState,
     },
 
     /// Get the GPU power profiles supported on this device
@@ -386,6 +397,18 @@ async fn main() -> Result<()> {
             proxy
                 .set_cpu_scaling_governor(governor.to_string().as_str())
                 .await?;
+        }
+        Commands::GetCpuBoostState => {
+            let proxy = CpuBoost1Proxy::new(&conn).await?;
+            let state = proxy.cpu_boost_state().await?;
+            match CPUBoostState::try_from(state) {
+                Ok(s) => println!("CPU Boost State: {s}"),
+                Err(_) => println!("Got unknown value {state} from backend"),
+            }
+        }
+        Commands::SetCpuBoostState { state } => {
+            let proxy = CpuBoost1Proxy::new(&conn).await?;
+            proxy.set_cpu_boost_state(*state as u32).await?;
         }
         Commands::GetAvailableGPUPowerProfiles => {
             let proxy = GpuPowerProfile1Proxy::new(&conn).await?;

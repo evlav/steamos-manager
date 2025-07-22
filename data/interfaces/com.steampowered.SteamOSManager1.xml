@@ -55,6 +55,23 @@
   </interface>
 
   <!--
+      com.steampowered.SteamOSManager1.CpuBoost1
+      @short_description: Optional interface adjusting CPU boost state.
+  -->
+  <interface name="com.steampowered.SteamOSManager1.CpuBoost1">
+
+    <!--
+        CpuBoostState:
+
+        Controls the CPU boost state.
+
+        Valid states: 0 = Disabled, 1 = Enabled
+    -->
+    <property name="CpuBoostState" type="u" access="readwrite"/>
+
+  </interface>
+
+  <!--
       com.steampowered.SteamOSManager1.CpuScaling1
       @short_description: Optional interface for adjusting CPU scaling.
   -->
