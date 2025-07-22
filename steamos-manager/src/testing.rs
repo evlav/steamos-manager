@@ -10,6 +10,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::Once;
 use std::time::Duration;
 use tempfile::{tempdir, TempDir};
 use tokio::fs::read;
@@ -17,6 +18,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tracing::error;
+use tracing::subscriber::set_global_default;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 use zbus::connection::{Builder, Connection};
 use zbus::object_server::Interface;
 use zbus::zvariant::ObjectPath;
@@ -25,6 +29,8 @@ use zbus_xml::{Method, Node, Property, Signal};
 
 use crate::hardware::DeviceConfig;
 use crate::platform::PlatformConfig;
+
+static INIT: Once = Once::new();
 
 thread_local! {
     static TEST: RefCell<Option<Rc<Test>>> = const { RefCell::new(None) };
@@ -65,6 +71,13 @@ macro_rules! enum_on_off {
 pub fn start() -> TestHandle {
     TEST.with(|lock| {
         assert!(lock.borrow().as_ref().is_none());
+        INIT.call_once(|| {
+            let stdout_log = fmt::layer();
+            let subscriber = Registry::default()
+                .with(stdout_log)
+                .with(EnvFilter::from_default_env());
+            let _ = set_global_default(subscriber);
+        });
         let test: Rc<Test> = Rc::new(Test {
             base: tempdir().expect("Couldn't create test directory"),
             process_cb: Cell::new(|_, _| Err(anyhow!("No current process_cb"))),
