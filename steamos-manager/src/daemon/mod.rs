@@ -33,7 +33,7 @@ pub use user::daemon as user;
 pub(crate) trait DaemonContext: Sized {
     type State: for<'a> Deserialize<'a> + Serialize + Default + Debug;
     type Config: for<'a> Deserialize<'a> + Default + Debug;
-    type Command: Send;
+    type Command: Send + Debug;
 
     fn state_path(&self) -> Result<PathBuf> {
         let config_path = self.user_config_path()?;
@@ -66,7 +66,7 @@ pub(crate) struct Daemon<C: DaemonContext> {
 }
 
 #[derive(Debug)]
-pub(crate) enum DaemonCommand<T> {
+pub(crate) enum DaemonCommand<T: Debug> {
     ContextCommand(T),
     ReadConfig,
     WriteState,
