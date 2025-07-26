@@ -5,9 +5,16 @@
  * SPDX-License-Identifier: MIT
  */
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
+use std::fs::Permissions;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::process::Stdio;
+use std::str::FromStr;
+use tokio::fs::{create_dir_all, set_permissions};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -16,11 +23,12 @@ use tracing::subscriber::set_global_default;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
 use zbus::connection::{Builder, Connection};
+use zbus::Address;
 
 use crate::daemon::{channel, Daemon, DaemonCommand, DaemonContext};
 use crate::ds_inhibit::Inhibitor;
 use crate::inputplumber::DeckService;
-use crate::manager::root::SteamOSManager;
+use crate::manager::root::{HandleContext, SteamOSManager};
 use crate::path;
 use crate::power::SysfsWriterService;
 use crate::sls::ftrace::Ftrace;
@@ -169,13 +177,66 @@ impl DaemonContext for RootContext {
 pub(crate) type Command = DaemonCommand<RootCommand>;
 
 async fn create_connection(channel: Sender<Command>) -> Result<Connection> {
+    create_dir_all("/var/run/steamos-manager").await?;
+    set_permissions("/var/run/steamos-manager", Permissions::from_mode(0o700)).await?;
+
+    let mut process = process::Command::new("/usr/bin/dbus-daemon")
+        .args([
+            "--print-address",
+            "--config-file=/usr/share/steamos-manager/root-dbus.conf",
+        ])
+        .stdout(Stdio::piped())
+        .spawn()?;
+
+    let stdout = BufReader::new(
+        process
+            .stdout
+            .take()
+            .ok_or(anyhow!("Couldn't capture stdout"))?,
+    );
+
+    let address = stdout
+        .lines()
+        .next_line()
+        .await?
+        .ok_or(anyhow!("Failed to read address"))?;
+    let address = address.trim_end();
+
+    let sockpath = address
+        .split_once(':')
+        .map(|(_, params)| params.split(','))
+        .and_then(|mut params| {
+            params.find_map(|pair| {
+                let (key, value) = pair.split_once('=')?;
+                if key == "path" {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+        })
+        .ok_or(anyhow!("Failed to parse address"))?;
+
     let connection = Builder::system()?
         .name("com.steampowered.SteamOSManager1")?
         .build()
         .await?;
-    let manager = SteamOSManager::new(connection.clone(), channel).await?;
     connection
         .object_server()
+        .at(
+            "/com/steampowered/SteamOSManager1",
+            HandleContext {
+                sockpath: sockpath.into(),
+            },
+        )
+        .await?;
+
+    let root = Builder::address(Address::from_str(address)?)?
+        .name("com.steampowered.SteamOSManager1")?
+        .build()
+        .await?;
+    let manager = SteamOSManager::new(root.clone(), channel).await?;
+    root.object_server()
         .at("/com/steampowered/SteamOSManager1", manager)
         .await?;
     Ok(connection)
