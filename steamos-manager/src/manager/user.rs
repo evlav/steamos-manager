@@ -11,12 +11,18 @@ use std::collections::HashMap;
 use tokio::fs::try_exists;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::oneshot;
+use tokio::task::{spawn, JoinHandle};
 use tokio_stream::StreamExt;
 use tracing::error;
-use zbus::object_server::SignalEmitter;
+use zbus::fdo::{self, DBusProxy};
+use zbus::message::Header;
+use zbus::names::{BusName, UniqueName};
+use zbus::object_server::{Interface, InterfaceRef, SignalEmitter};
 use zbus::proxy::{Builder, CacheProperties};
-use zbus::zvariant::Fd;
-use zbus::{fdo, interface, zvariant, Connection, ObjectServer, Proxy};
+use zbus::zvariant::{Fd, ObjectPath};
+use zbus::{interface, zvariant, Connection, ObjectServer, Proxy};
+
+use steamos_manager_macros::remote;
 
 use crate::cec::{HdmiCecControl, HdmiCecState};
 use crate::daemon::user::Command;
@@ -33,6 +39,11 @@ use crate::power::{
     get_available_gpu_power_profiles, get_available_platform_profiles, get_cpu_boost_state,
     get_cpu_scaling_governor, get_gpu_clocks, get_gpu_clocks_range, get_gpu_performance_level,
     get_gpu_power_profile, get_max_charge_level, get_platform_profile, TdpManagerCommand,
+};
+use crate::proxy::{
+    BatteryChargeLimit1Proxy, FactoryReset1Proxy, FanControl1Proxy, GpuPerformanceLevel1Proxy,
+    GpuPowerProfile1Proxy, PerformanceProfile1Proxy, Storage1Proxy, UpdateBios1Proxy,
+    UpdateDock1Proxy,
 };
 use crate::screenreader::{OrcaManager, ScreenReaderAction, ScreenReaderMode};
 use crate::wifi::{
@@ -102,6 +113,92 @@ macro_rules! setter {
     };
 }
 
+macro_rules! register_interface {
+    (($self:expr, $name:expr, $object:expr, $bus_name:expr, $connection:expr, $ctxt:expr); $($var:ident: $iface:ident,)*) => {
+        let object_server = $connection.object_server();
+        let object = $object.to_owned();
+
+        match $name {
+            $(_ if $name == <$iface as Interface>::name().as_str() => {
+                if $self.$var.is_some() {
+                    return Ok(false);
+                }
+                if object_server
+                    .interface::<_, $iface>(MANAGER_PATH)
+                    .await
+                    .is_ok()
+                {
+                    return Ok(false);
+                }
+                if object_server
+                    .interface::<_, <$iface as RemoteInterface>::Remote>(MANAGER_PATH)
+                    .await
+                    .is_ok()
+                {
+                    return Ok(false);
+                }
+
+                let remote = <$iface as RemoteInterface>::Remote::new(
+                    &$bus_name.to_owned(),
+                    object,
+                    $connection,
+                )
+                .await?;
+                object_server.at(MANAGER_PATH, remote).await?;
+                let iface = object_server.interface
+                    ::<_, <$iface as RemoteInterface>::Remote>(MANAGER_PATH).await?;
+                if let Some(interlock) = iface.get_mut().await.interlock.take() {
+                    let _ = interlock.send(());
+                }
+                $self.$var = Some(iface);
+                $self.remote_interfaces_changed(&$ctxt).await?;
+                Ok(true)
+            })*
+            _ => {
+                Err(fdo::Error::InvalidArgs(format!(
+                    "Unknown interface {}", $name
+                )))
+            }
+        }
+    };
+}
+
+macro_rules! unregister_interface {
+    (($self:expr, $name:expr, $sender:expr, $connection:expr, $ctxt:expr); $($var:ident: $iface:ident,)*) => {
+        let object_server = $connection.object_server();
+
+        match $name {
+            $(_ if $name == <$iface as Interface>::name().as_str() => {
+                let Some(iface) = $self.$var.as_ref() else {
+                    return Ok(false);
+                };
+                if let Some(sender) = $sender {
+                    let iface = iface.get().await;
+                    let remote = iface.remote();
+                    if remote != sender {
+                        return Err(fdo::Error::AccessDenied(format!(
+                            "Interface {} is owned by a different remote", $name
+                        )));
+                    }
+                }
+                object_server.remove::<$iface, _>(MANAGER_PATH).await?;
+                $self.$var = None;
+                $self.remote_interfaces_changed($ctxt).await?;
+                Ok(true)
+            })*
+            _ => {
+                Err(fdo::Error::InvalidArgs(format!(
+                    "Unknown interface {}", $name
+                )))
+            }
+        }
+    };
+}
+
+trait RemoteInterface {
+    type Remote: Interface;
+}
+
 struct SteamOSManager {
     proxy: Proxy<'static>,
     _job_manager: UnboundedSender<JobManagerCommand>,
@@ -159,6 +256,19 @@ struct Manager2 {
 struct PerformanceProfile1 {
     proxy: Proxy<'static>,
     tdp_limit_manager: Option<UnboundedSender<TdpManagerCommand>>,
+}
+
+#[derive(Default)]
+struct RemoteInterface1 {
+    remote_battery_charge_limit1: Option<InterfaceRef<BatteryChargeLimit1Remote>>,
+    remote_factory_reset1: Option<InterfaceRef<FactoryReset1Remote>>,
+    remote_fan_control1: Option<InterfaceRef<FanControl1Remote>>,
+    remote_gpu_performance_level1: Option<InterfaceRef<GpuPerformanceLevel1Remote>>,
+    remote_gpu_power_profile1: Option<InterfaceRef<GpuPowerProfile1Remote>>,
+    remote_performance_profile1: Option<InterfaceRef<PerformanceProfile1Remote>>,
+    remote_storage1: Option<InterfaceRef<Storage1Remote>>,
+    remote_update_bios1: Option<InterfaceRef<UpdateBios1Remote>>,
+    remote_update_dock1: Option<InterfaceRef<UpdateDock1Remote>>,
 }
 
 struct ScreenReader0 {
@@ -274,7 +384,7 @@ impl BatteryChargeLimit1 {
     const DEFAULT_SUGGESTED_MINIMUM_LIMIT: i32 = 10;
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.BatteryChargeLimit1")]
+#[remote(name = "com.steampowered.SteamOSManager1.BatteryChargeLimit1")]
 impl BatteryChargeLimit1 {
     #[zbus(property)]
     async fn max_charge_level(&self) -> fdo::Result<i32> {
@@ -351,7 +461,7 @@ impl CpuScaling1 {
     #[zbus(property)]
     async fn set_cpu_scaling_governor(
         &self,
-        governor: String,
+        governor: &str,
         #[zbus(signal_emitter)] ctx: SignalEmitter<'_>,
     ) -> zbus::Result<()> {
         let _: () = self
@@ -362,14 +472,14 @@ impl CpuScaling1 {
     }
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.FactoryReset1")]
+#[remote(name = "com.steampowered.SteamOSManager1.FactoryReset1")]
 impl FactoryReset1 {
     async fn prepare_factory_reset(&self, flags: u32) -> fdo::Result<u32> {
         method!(self, "PrepareFactoryReset", flags)
     }
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.FanControl1")]
+#[remote(name = "com.steampowered.SteamOSManager1.FanControl1")]
 impl FanControl1 {
     #[zbus(property)]
     async fn fan_control_state(&self) -> fdo::Result<u32> {
@@ -387,7 +497,7 @@ impl FanControl1 {
     }
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.GpuPerformanceLevel1")]
+#[remote(name = "com.steampowered.SteamOSManager1.GpuPerformanceLevel1")]
 impl GpuPerformanceLevel1 {
     #[zbus(property(emits_changed_signal = "const"))]
     async fn available_gpu_performance_levels(&self) -> fdo::Result<Vec<String>> {
@@ -454,7 +564,7 @@ impl GpuPerformanceLevel1 {
     }
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.GpuPowerProfile1")]
+#[remote(name = "com.steampowered.SteamOSManager1.GpuPowerProfile1")]
 impl GpuPowerProfile1 {
     #[zbus(property(emits_changed_signal = "const"))]
     async fn available_gpu_power_profiles(&self) -> fdo::Result<Vec<String>> {
@@ -576,7 +686,7 @@ impl Manager2 {
     }
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.PerformanceProfile1")]
+#[remote(name = "com.steampowered.SteamOSManager1.PerformanceProfile1")]
 impl PerformanceProfile1 {
     #[zbus(property(emits_changed_signal = "const"))]
     async fn available_performance_profiles(&self) -> fdo::Result<Vec<String>> {
@@ -619,7 +729,7 @@ impl PerformanceProfile1 {
         if let Some(manager) = self.tdp_limit_manager.as_ref() {
             let manager = manager.clone();
             let _ = manager.send(TdpManagerCommand::UpdateDownloadMode);
-            tokio::spawn(async move {
+            spawn(async move {
                 let (tx, rx) = oneshot::channel();
                 manager.send(TdpManagerCommand::IsActive(tx))?;
                 if rx.await?? {
@@ -650,6 +760,122 @@ impl PerformanceProfile1 {
                 "No performance platform-profile configured",
             )))?;
         Ok(config.suggested_default.to_string())
+    }
+}
+
+#[interface(name = "com.steampowered.SteamOSManager1.RemoteInterface1")]
+impl RemoteInterface1 {
+    async fn register_interface(
+        &mut self,
+        iface: &str,
+        object: ObjectPath<'_>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(signal_emitter)] ctxt: SignalEmitter<'_>,
+    ) -> fdo::Result<bool> {
+        let Some(sender) = header.sender() else {
+            return Err(fdo::Error::InvalidArgs(String::from("Sender missing")));
+        };
+        let bus_name = BusName::Unique(sender.to_owned());
+
+        self.register_interface_impl(iface, object, &bus_name, connection, &ctxt)
+            .await
+    }
+
+    async fn unregister_interface(
+        &mut self,
+        iface: &str,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] connection: &Connection,
+        #[zbus(signal_emitter)] ctxt: SignalEmitter<'_>,
+    ) -> fdo::Result<bool> {
+        let sender = header.sender();
+        if sender.is_none() {
+            return Err(fdo::Error::InvalidArgs(String::from("Sender missing")));
+        };
+
+        self.unregister_interface_impl(iface, sender, connection, &ctxt)
+            .await
+    }
+
+    #[zbus(property)]
+    async fn remote_interfaces(&self) -> Vec<String> {
+        let mut ifaces = Vec::new();
+        if self.remote_battery_charge_limit1.is_some() {
+            ifaces.push(BatteryChargeLimit1::name().to_string());
+        }
+        if self.remote_factory_reset1.is_some() {
+            ifaces.push(FactoryReset1::name().to_string());
+        }
+        if self.remote_fan_control1.is_some() {
+            ifaces.push(FanControl1::name().to_string());
+        }
+        if self.remote_gpu_performance_level1.is_some() {
+            ifaces.push(GpuPerformanceLevel1::name().to_string());
+        }
+        if self.remote_gpu_power_profile1.is_some() {
+            ifaces.push(GpuPowerProfile1::name().to_string());
+        }
+        if self.remote_performance_profile1.is_some() {
+            ifaces.push(PerformanceProfile1::name().to_string());
+        }
+        if self.remote_storage1.is_some() {
+            ifaces.push(Storage1::name().to_string());
+        }
+        if self.remote_update_bios1.is_some() {
+            ifaces.push(UpdateBios1::name().to_string());
+        }
+        if self.remote_update_dock1.is_some() {
+            ifaces.push(UpdateDock1::name().to_string());
+        }
+        ifaces
+    }
+}
+
+impl RemoteInterface1 {
+    async fn register_interface_impl(
+        &mut self,
+        iface: &str,
+        object: ObjectPath<'_>,
+        bus_name: &BusName<'_>,
+        connection: &Connection,
+        ctxt: &SignalEmitter<'_>,
+    ) -> fdo::Result<bool> {
+        register_interface! {
+            (self, iface, object, bus_name, connection, ctxt);
+
+            remote_battery_charge_limit1: BatteryChargeLimit1,
+            remote_factory_reset1: FactoryReset1,
+            remote_fan_control1: FanControl1,
+            remote_gpu_performance_level1: GpuPerformanceLevel1,
+            remote_gpu_power_profile1: GpuPowerProfile1,
+            remote_performance_profile1: PerformanceProfile1,
+            remote_storage1: Storage1,
+            remote_update_bios1: UpdateBios1,
+            remote_update_dock1: UpdateDock1,
+        }
+    }
+
+    async fn unregister_interface_impl(
+        &mut self,
+        iface: &str,
+        sender: Option<&UniqueName<'_>>,
+        connection: &Connection,
+        ctxt: &SignalEmitter<'_>,
+    ) -> fdo::Result<bool> {
+        unregister_interface! {
+            (self, iface, sender, connection, ctxt);
+
+            remote_battery_charge_limit1: BatteryChargeLimit1,
+            remote_factory_reset1: FactoryReset1,
+            remote_fan_control1: FanControl1,
+            remote_gpu_performance_level1: GpuPerformanceLevel1,
+            remote_gpu_power_profile1: GpuPowerProfile1,
+            remote_performance_profile1: PerformanceProfile1,
+            remote_storage1: Storage1,
+            remote_update_bios1: UpdateBios1,
+            remote_update_dock1: UpdateDock1,
+        }
     }
 }
 
@@ -776,7 +1002,7 @@ impl ScreenReader0 {
     }
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.Storage1")]
+#[remote(name = "com.steampowered.SteamOSManager1.Storage1")]
 impl Storage1 {
     async fn format_device(
         &mut self,
@@ -849,14 +1075,14 @@ impl TdpLimit1 {
     }
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.UpdateBios1")]
+#[remote(name = "com.steampowered.SteamOSManager1.UpdateBios1")]
 impl UpdateBios1 {
     async fn update_bios(&mut self) -> fdo::Result<zvariant::OwnedObjectPath> {
         job_method!(self, "UpdateBios")
     }
 }
 
-#[interface(name = "com.steampowered.SteamOSManager1.UpdateDock1")]
+#[remote(name = "com.steampowered.SteamOSManager1.UpdateDock1")]
 impl UpdateDock1 {
     async fn update_dock(&mut self) -> fdo::Result<zvariant::OwnedObjectPath> {
         job_method!(self, "UpdateDock")
@@ -1078,7 +1304,7 @@ async fn create_device_interfaces(
         }
 
         let object_server = object_server.clone();
-        tokio::spawn(async move {
+        spawn(async move {
             let (tx, rx) = oneshot::channel();
             manager.send(TdpManagerCommand::IsActive(tx))?;
             if rx.await?? {
@@ -1142,6 +1368,7 @@ pub(crate) async fn create_interfaces(
         proxy: proxy.clone(),
         channel: daemon,
     };
+    let remote_interface = RemoteInterface1::default();
     let screen_reader = ScreenReader0::new(&session).await?;
     let wifi_power_management = WifiPowerManagement1 {
         proxy: proxy.clone(),
@@ -1200,6 +1427,7 @@ pub(crate) async fn create_interfaces(
     }
 
     object_server.at(MANAGER_PATH, manager2).await?;
+    object_server.at(MANAGER_PATH, remote_interface).await?;
 
     if try_exists(path("/usr/bin/orca")).await? {
         object_server.at(MANAGER_PATH, screen_reader).await?;
@@ -1228,9 +1456,11 @@ mod test {
         FormatDeviceConfig, PlatformConfig, ResetConfig, ScriptConfig, ServiceConfig, StorageConfig,
     };
     use crate::power::TdpLimitingMethod;
+    use crate::proxy::RemoteInterface1Proxy;
     use crate::systemd::test::{MockManager, MockUnit};
     use crate::{path, power, testing};
 
+    use anyhow::{anyhow, ensure};
     use std::num::NonZeroU32;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
@@ -1239,10 +1469,9 @@ mod test {
     use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
     use tokio::time::sleep;
     use zbus::object_server::Interface;
-    use zbus::Connection;
 
     struct TestHandle {
-        _handle: testing::TestHandle,
+        handle: testing::TestHandle,
         connection: Connection,
         _rx_job: UnboundedReceiver<JobManagerCommand>,
         rx_tdp: Option<UnboundedReceiver<TdpManagerCommand>>,
@@ -1360,7 +1589,7 @@ mod test {
         sleep(Duration::from_millis(1)).await;
 
         Ok(TestHandle {
-            _handle: handle,
+            handle,
             connection,
             _rx_job: rx_job,
             rx_tdp,
@@ -1651,6 +1880,17 @@ mod test {
     }
 
     #[tokio::test]
+    async fn interface_matches_remote_interface1() {
+        let test = start(all_platform_config(), all_device_config())
+            .await
+            .expect("start");
+
+        assert!(test_interface_matches::<RemoteInterface1>(&test.connection)
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
     async fn interface_matches_storage1() {
         let test = start(all_platform_config(), all_device_config())
             .await
@@ -1792,5 +2032,150 @@ mod test {
         assert!(test_interface_matches::<WifiDebugDump1>(&test.connection)
             .await
             .unwrap());
+    }
+
+    async fn test_remote_interface_added<I: RemoteInterface + Interface>(
+        test: &TestHandle,
+        new_conn: &Connection,
+    ) -> Result<()> {
+        let proxy = RemoteInterface1Proxy::builder(&new_conn)
+            .destination(
+                test.connection
+                    .unique_name()
+                    .ok_or(anyhow!("no unique name"))?,
+            )?
+            .build()
+            .await?;
+
+        ensure!(test_remote_interface_missing::<I>(&proxy, test).await?);
+
+        proxy
+            .register_interface(
+                <I as Interface>::name().as_str(),
+                &ObjectPath::try_from("/foo")?,
+            )
+            .await?;
+
+        ensure!(!test_remote_interface_missing::<I>(&proxy, test).await?);
+
+        Ok(())
+    }
+
+    async fn test_remote_interface_missing<I: RemoteInterface + Interface>(
+        proxy: &RemoteInterface1Proxy<'_>,
+        test: &TestHandle,
+    ) -> Result<bool> {
+        Ok(!proxy
+            .remote_interfaces()
+            .await?
+            .contains(&<I as Interface>::name().to_string())
+            && test_interface_missing::<<I as RemoteInterface>::Remote>(&test.connection).await)
+    }
+
+    #[tokio::test]
+    async fn remote_battery_charge_limit1() {
+        let test = start(None, None).await.unwrap();
+
+        let new_conn = test.handle.new_connection().await.unwrap();
+        test_remote_interface_added::<BatteryChargeLimit1>(&test, &new_conn)
+            .await
+            .unwrap();
+
+        let new_conn = test.handle.new_connection().await.unwrap();
+        let proxy = RemoteInterface1Proxy::builder(&new_conn)
+            .destination(test.connection.unique_name().unwrap())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+
+        assert!(
+            !test_remote_interface_missing::<BatteryChargeLimit1>(&proxy, &test)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_battery_charge_limit1_dropped() {
+        let test = start(None, None).await.unwrap();
+
+        let new_conn = test.handle.new_connection().await.unwrap();
+        test_remote_interface_added::<BatteryChargeLimit1>(&test, &new_conn)
+            .await
+            .unwrap();
+
+        drop(new_conn);
+
+        let new_conn = test.handle.new_connection().await.unwrap();
+        let proxy = RemoteInterface1Proxy::builder(&new_conn)
+            .destination(test.connection.unique_name().unwrap())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+
+        assert!(
+            test_remote_interface_missing::<BatteryChargeLimit1>(&proxy, &test)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_battery_charge_limit1_removed() {
+        let test = start(None, None).await.unwrap();
+
+        let new_conn = test.handle.new_connection().await.unwrap();
+        test_remote_interface_added::<BatteryChargeLimit1>(&test, &new_conn)
+            .await
+            .unwrap();
+
+        let proxy = RemoteInterface1Proxy::builder(&new_conn)
+            .destination(test.connection.unique_name().unwrap())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+
+        assert!(proxy
+            .unregister_interface(BatteryChargeLimit1::name().as_str())
+            .await
+            .unwrap());
+
+        assert!(
+            test_remote_interface_missing::<BatteryChargeLimit1>(&proxy, &test)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_battery_charge_limit1_not_removed() {
+        let test = start(None, None).await.unwrap();
+
+        let new_conn = test.handle.new_connection().await.unwrap();
+        test_remote_interface_added::<BatteryChargeLimit1>(&test, &new_conn)
+            .await
+            .unwrap();
+
+        let new_conn = test.handle.new_connection().await.unwrap();
+        let proxy = RemoteInterface1Proxy::builder(&new_conn)
+            .destination(test.connection.unique_name().unwrap())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+
+        assert!(proxy
+            .unregister_interface(BatteryChargeLimit1::name().as_str())
+            .await
+            .is_err());
+
+        assert!(
+            !test_remote_interface_missing::<BatteryChargeLimit1>(&proxy, &test)
+                .await
+                .unwrap()
+        );
     }
 }
