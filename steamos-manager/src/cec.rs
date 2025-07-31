@@ -109,7 +109,7 @@ impl<'dbus> HdmiCecControl<'dbus> {
                 self.plasma_rc_unit.start().await?;
                 self.wakehook_unit.start().await?;
             }
-        };
+        }
 
         Ok(())
     }

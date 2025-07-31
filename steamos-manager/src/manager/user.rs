@@ -1211,7 +1211,7 @@ pub(crate) async fn create_interfaces(
             .await?;
     }
 
-    Ok(SignalRelayService { session, proxy })
+    Ok(SignalRelayService { proxy, session })
 }
 
 #[cfg(test)]

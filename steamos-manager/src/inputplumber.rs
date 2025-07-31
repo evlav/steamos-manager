@@ -55,7 +55,7 @@ impl DeckService {
     }
 
     async fn check_devices(&self, object_manager: &ObjectManagerProxy<'_>) -> Result<()> {
-        for (path, ifaces) in object_manager.get_managed_objects().await?.into_iter() {
+        for (path, ifaces) in object_manager.get_managed_objects().await? {
             if ifaces.contains_key(&self.composite_device_iface_name) {
                 self.make_deck(&path).await?;
             }

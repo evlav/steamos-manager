@@ -180,16 +180,16 @@ pub(crate) async fn set_wifi_debug_mode(
             if should_trace {
                 if let Err(message) = stop_tracing().await {
                     bail!("stop_tracing command got an error: {message}");
-                };
+                }
             }
             // Stop_tracing was successful
             if let Err(message) = setup_iwd_config(false).await {
                 bail!("setup_iwd_config false got an error: {message}");
-            };
+            }
             // setup_iwd_config false worked
             if let Err(message) = restart_iwd(connection).await {
                 bail!("restart_iwd got an error: {message}");
-            };
+            }
         }
         WifiDebugMode::Tracing => {
             ensure!(buffer_size > MIN_BUFFER_SIZE, "Buffer size too small");
@@ -200,12 +200,12 @@ pub(crate) async fn set_wifi_debug_mode(
             // setup_iwd_config worked
             if let Err(message) = restart_iwd(connection).await {
                 bail!("restart_iwd got an error: {message}");
-            };
+            }
             // restart_iwd worked
             if should_trace {
                 if let Err(message) = start_tracing(buffer_size).await {
                     bail!("start_tracing got an error: {message}");
-                };
+                }
             }
         }
     }

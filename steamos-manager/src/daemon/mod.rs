@@ -213,9 +213,8 @@ impl<C: DaemonContext> Daemon<C> {
                 _ = sigquit.recv() => Err(anyhow!("Got SIGQUIT")),
             }
             .inspect_err(|e| error!("Encountered error running: {e}"));
-            match res {
-                Ok(()) => continue,
-                r => break r,
+            if res.is_err() {
+                break res;
             }
         };
         self.token.cancel();

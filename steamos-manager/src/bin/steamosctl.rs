@@ -674,7 +674,7 @@ async fn main() -> Result<()> {
         Commands::TriggerScreenReaderAction { action } => {
             let proxy = ScreenReader0Proxy::new(&conn).await?;
             let timestamp = clock_gettime(ClockId::CLOCK_MONOTONIC_RAW)?;
-            let now = timestamp.tv_sec() * 1000000000 + timestamp.tv_nsec();
+            let now = timestamp.tv_sec() * 1_000_000_000 + timestamp.tv_nsec();
             proxy
                 .trigger_action(*action as u32, now.try_into()?)
                 .await?;

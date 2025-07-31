@@ -166,7 +166,7 @@ impl<'dbus> OrcaManager<'dbus> {
         let connection =
             SDConnection::open(CLIENT_NAME, CONNECTION_NAME, &user_name, Mode::Threaded)?;
         let voices = connection.list_synthesis_voices()?;
-        for v in voices.into_iter() {
+        for v in voices {
             self.voices_by_language
                 .entry(v.language.clone())
                 .or_default()
@@ -201,7 +201,7 @@ impl<'dbus> OrcaManager<'dbus> {
     }
 
     #[cfg(not(test))]
-    fn settings_path(&self) -> Result<PathBuf> {
+    fn settings_path() -> Result<PathBuf> {
         let xdg_base = BaseDirectories::new();
         Ok(xdg_base
             .get_data_home()
@@ -210,7 +210,7 @@ impl<'dbus> OrcaManager<'dbus> {
     }
 
     #[cfg(test)]
-    fn settings_path(&self) -> Result<PathBuf> {
+    fn settings_path() -> Result<PathBuf> {
         Ok(path(ORCA_SETTINGS))
     }
 
@@ -254,7 +254,7 @@ impl<'dbus> OrcaManager<'dbus> {
             .ok_or(anyhow!("Invalid voice specified"))?;
         self.set_orca_voice(properties).await?;
         self.voice = voice.to_string();
-        self.reload_orca().await?;
+        Self::reload_orca().await?;
         Ok(())
     }
 
@@ -267,7 +267,7 @@ impl<'dbus> OrcaManager<'dbus> {
 
         self.set_orca_option(PITCH_SETTING, pitch).await?;
         self.pitch = pitch;
-        self.reload_orca().await?;
+        Self::reload_orca().await?;
         Ok(())
     }
 
@@ -280,7 +280,7 @@ impl<'dbus> OrcaManager<'dbus> {
 
         self.set_orca_option(RATE_SETTING, rate).await?;
         self.rate = rate;
-        self.reload_orca().await?;
+        Self::reload_orca().await?;
         Ok(())
     }
 
@@ -293,7 +293,7 @@ impl<'dbus> OrcaManager<'dbus> {
 
         self.set_orca_option(VOLUME_SETTING, volume).await?;
         self.volume = volume;
-        self.reload_orca().await?;
+        Self::reload_orca().await?;
         Ok(())
     }
 
@@ -337,7 +337,7 @@ impl<'dbus> OrcaManager<'dbus> {
         match action {
             ScreenReaderAction::StopTalking => {
                 // TODO: Use dbus method to stop orca from speaking instead once that's in a release/steamos package.
-                let pid = self.get_orca_pid()?;
+                let pid = Self::get_orca_pid()?;
                 signal::kill(pid, signal::Signal::SIGUSR2)?;
             }
             ScreenReaderAction::ReadNextWord => {
@@ -391,19 +391,19 @@ impl<'dbus> OrcaManager<'dbus> {
     }
 
     #[cfg(test)]
-    async fn reload_orca(&self) -> Result<()> {
+    async fn reload_orca() -> Result<()> {
         Ok(())
     }
 
     #[cfg(not(test))]
-    async fn reload_orca(&self) -> Result<()> {
+    async fn reload_orca() -> Result<()> {
         // TODO: Use dbus api to tell orca to reload settings once dbus api is packaged.
-        let pid = self.get_orca_pid()?;
+        let pid = Self::get_orca_pid()?;
         signal::kill(pid, signal::Signal::SIGUSR1)?;
         Ok(())
     }
 
-    fn get_orca_pid(&self) -> Result<Pid> {
+    fn get_orca_pid() -> Result<Pid> {
         let mut system = System::new();
         system.refresh_all();
 
@@ -415,7 +415,7 @@ impl<'dbus> OrcaManager<'dbus> {
 
     async fn set_orca_enabled(&mut self, enabled: bool) -> Result<()> {
         // Change json file
-        let path = self.settings_path()?;
+        let path = Self::settings_path()?;
         let data = read_to_string(&path)
             .await
             .with_context(|| format!("Unable to read from {}", path.display()))?;
@@ -432,11 +432,11 @@ impl<'dbus> OrcaManager<'dbus> {
             .insert(ENABLE_SETTING.to_string(), Value::Bool(enabled));
 
         let data = serde_json::to_string_pretty(&json)?;
-        Ok(write(self.settings_path()?, data.as_bytes()).await?)
+        Ok(write(path, data.as_bytes()).await?)
     }
 
     async fn load_values(&mut self) -> Result<()> {
-        let path = self.settings_path()?;
+        let path = Self::settings_path()?;
         let data = read_to_string(&path)
             .await
             .with_context(|| format!("Unable to read from {}", path.display()))?;
@@ -506,7 +506,8 @@ impl<'dbus> OrcaManager<'dbus> {
     }
 
     async fn set_orca_voice(&self, voice: &Voice) -> Result<()> {
-        let data = read_to_string(self.settings_path()?).await?;
+        let path = Self::settings_path()?;
+        let data = read_to_string(&path).await?;
         let mut json: Value = serde_json::from_str(&data)?;
 
         let profiles = json
@@ -539,7 +540,7 @@ impl<'dbus> OrcaManager<'dbus> {
         // If we have a dialect use it, otherwise leave it blank
         let language;
         let dialect;
-        if let Some((l, d)) = voice.language.split_once("-") {
+        if let Some((l, d)) = voice.language.split_once('-') {
             language = l;
             dialect = d;
         } else {
@@ -563,7 +564,7 @@ impl<'dbus> OrcaManager<'dbus> {
             .insert("established".to_string(), true.into());
 
         let data = serde_json::to_string_pretty(&json)?;
-        Ok(write(self.settings_path()?, data.as_bytes()).await?)
+        Ok(write(path, data.as_bytes()).await?)
     }
 
     async fn set_orca_option(&self, option: &str, value: f64) -> Result<()> {
@@ -575,7 +576,7 @@ impl<'dbus> OrcaManager<'dbus> {
         } else {
             bail!("Invalid orca option {option}");
         }
-        let path = self.settings_path()?;
+        let path = Self::settings_path()?;
         let data = read_to_string(&path)
             .await
             .with_context(|| format!("Unable to read from {}", path.display()))?;
@@ -611,7 +612,7 @@ impl<'dbus> OrcaManager<'dbus> {
             .insert(option.to_string(), value.into());
 
         let data = serde_json::to_string_pretty(&json)?;
-        Ok(write(self.settings_path()?, data.as_bytes()).await?)
+        Ok(write(path, data.as_bytes()).await?)
     }
 
     async fn restart_orca(&self) -> Result<()> {

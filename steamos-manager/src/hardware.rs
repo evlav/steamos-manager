@@ -139,7 +139,7 @@ impl DeviceConfig {
         let product_name = read_to_string(path(PRODUCT_NAME_PATH)).await?;
         let product_name = product_name.trim_end();
 
-        for device in self.device.iter() {
+        for device in &self.device {
             if let Some(dmi) = &device.dmi {
                 if dmi.sys_vendor != sys_vendor {
                     continue;

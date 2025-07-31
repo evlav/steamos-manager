@@ -152,7 +152,7 @@ where
         let mut iter = monitor.iter();
         loop {
             select! {
-                _ = sleep(timeout) => bail!("Udev poller timed out"),
+                () = sleep(timeout) => bail!("Udev poller timed out"),
                 guard = fd.ready(Interest::READABLE) => {
                     let mut guard = guard?;
                     for ev in iter.by_ref() {
