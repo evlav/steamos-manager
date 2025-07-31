@@ -13,7 +13,6 @@ gio = "0.20"
 inotify = { version = "0.11", default-features = false, features = ["stream"] }
 input-linux = "0.7"
 itertools = "0.14"
-lazy_static = "1"
 libc = "0.2"
 nix = { version = "0.30", default-features = false, features = ["fs", "poll", "signal", "time", "user"] }
 num_enum = "0.7"

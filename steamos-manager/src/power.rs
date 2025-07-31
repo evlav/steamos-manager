@@ -7,7 +7,6 @@
 
 use anyhow::{anyhow, bail, ensure, Result};
 use async_trait::async_trait;
-use lazy_static::lazy_static;
 use num_enum::TryFromPrimitive;
 use regex::Regex;
 use std::collections::hash_map::Entry;
@@ -17,7 +16,7 @@ use std::ops::RangeInclusive;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use strum::{Display, EnumString, VariantNames};
 use tokio::fs::{self, try_exists, File};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Interest};
@@ -55,12 +54,11 @@ const PLATFORM_PROFILE_PREFIX: &str = "/sys/class/platform-profile";
 const TDP_LIMIT1: &str = "power1_cap";
 const TDP_LIMIT2: &str = "power2_cap";
 
-lazy_static! {
-    static ref GPU_POWER_PROFILE_REGEX: Regex =
-        Regex::new(r"^\s*(?<value>[0-9]+)\s+(?<name>[0-9A-Za-z_]+)(?<active>\*)?").unwrap();
-    static ref GPU_CLOCK_LEVELS_REGEX: Regex =
-        Regex::new(r"^\s*(?<index>[0-9]+): (?<value>[0-9]+)Mhz").unwrap();
-}
+static GPU_POWER_PROFILE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\s*(?<value>[0-9]+)\s+(?<name>[0-9A-Za-z_]+)(?<active>\*)?").unwrap()
+});
+static GPU_CLOCK_LEVELS_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*(?<index>[0-9]+): (?<value>[0-9]+)Mhz").unwrap());
 
 static SYSFS_WRITER: OnceCell<Arc<SysfsWriterQueue>> = OnceCell::const_new();
 

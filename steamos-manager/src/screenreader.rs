@@ -9,7 +9,6 @@ use ::sysinfo::System;
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use gio::{prelude::SettingsExt, Settings};
 use input_linux::Key;
-use lazy_static::lazy_static;
 use nix::sys::signal;
 use nix::unistd::Pid;
 #[cfg(not(test))]
@@ -23,6 +22,7 @@ use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use strum::{Display, EnumString};
 use tokio::fs::{read_to_string, write};
 use tracing::{error, info, trace, warn};
@@ -64,13 +64,13 @@ const RATE_DEFAULT: f64 = 50.0;
 const VOLUME_DEFAULT: f64 = 10.0;
 const VOICE_NAME_DEFAULT: &str = "default";
 
-lazy_static! {
-    static ref VALID_SETTINGS: HashMap<&'static str, RangeInclusive<f64>> = HashMap::from_iter([
+static VALID_SETTINGS: LazyLock<HashMap<&'static str, RangeInclusive<f64>>> = LazyLock::new(|| {
+    HashMap::from_iter([
         (PITCH_SETTING, (0.0..=10.0)),
         (RATE_SETTING, (0.0..=100.0)),
         (VOLUME_SETTING, (0.0..=10.0)),
-    ]);
-}
+    ])
+});
 
 #[derive(Display, EnumString, PartialEq, Debug, Copy, Clone, TryFromPrimitive)]
 #[strum(serialize_all = "snake_case", ascii_case_insensitive)]
