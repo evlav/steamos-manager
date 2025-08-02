@@ -90,10 +90,9 @@ impl ResetConfig {
 }
 
 #[derive(Clone, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum ServiceConfig {
-    #[serde(rename = "systemd")]
     Systemd(String),
-    #[serde(rename = "script")]
     Script {
         start: ScriptConfig,
         stop: ScriptConfig,
