@@ -20,10 +20,11 @@ use steamos_manager::proxy::{
     AmbientLightSensor1Proxy, BatteryChargeLimit1Proxy, CpuBoost1Proxy, CpuScaling1Proxy,
     FactoryReset1Proxy, FanControl1Proxy, GpuPerformanceLevel1Proxy, GpuPowerProfile1Proxy,
     HdmiCec1Proxy, LowPowerMode1Proxy, Manager2Proxy, PerformanceProfile1Proxy, ScreenReader0Proxy,
-    Storage1Proxy, TdpLimit1Proxy, UpdateBios1Proxy, UpdateDock1Proxy, WifiDebug1Proxy,
-    WifiDebugDump1Proxy, WifiPowerManagement1Proxy,
+    SessionManagement1Proxy, Storage1Proxy, TdpLimit1Proxy, UpdateBios1Proxy, UpdateDock1Proxy,
+    WifiDebug1Proxy, WifiDebugDump1Proxy, WifiPowerManagement1Proxy,
 };
 use steamos_manager::screenreader::{ScreenReaderAction, ScreenReaderMode};
+use steamos_manager::session::LoginMode;
 use steamos_manager::wifi::{WifiBackend, WifiDebugMode, WifiPowerManagement};
 use zbus::fdo::{IntrospectableProxy, PropertiesProxy};
 use zbus::{zvariant, Connection};
@@ -298,6 +299,44 @@ enum Commands {
         /// `toggle_mode`
         action: ScreenReaderAction,
     },
+
+    /// Switch from the current session into desktop mode
+    SwitchToDesktopMode,
+
+    /// Switch from the current session into game mode
+    SwitchToGameMode,
+
+    /// Switch from the current session into the given login mode
+    SwitchToLoginMode {
+        /// Valid login modes are `game` and `desktop`
+        mode: LoginMode,
+    },
+
+    /// Set the default desktop session for the desktop login mode
+    SetDefaultDesktopSession {
+        /// The name of the session. Valid sessions can be
+        /// obtained using get-valid-desktop-sessions.
+        session: String,
+    },
+
+    /// Get the default desktop session
+    GetDefaultDesktopSession,
+
+    /// Set the default login mode
+    SetDefaultLoginMode {
+        /// Valid login modes are `game` and `desktop`
+        mode: LoginMode,
+    },
+
+    /// Get the default login mode
+    GetDefaultLoginMode,
+
+    /// Get a list of the valid desktop sessions
+    GetValidDesktopSessions,
+
+    #[command(hide = true)]
+    // This is an internal-only command that isn't useful for end-users
+    CleanTemporarySessions,
 }
 
 async fn get_all_properties(conn: &Connection) -> Result<()> {
@@ -706,6 +745,52 @@ async fn main() -> Result<()> {
             for voice in voices.iter().sorted() {
                 println!("- {voice}");
             }
+        }
+        Commands::SwitchToDesktopMode => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.switch_to_desktop_mode().await?;
+        }
+        Commands::SwitchToGameMode => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.switch_to_game_mode().await?;
+        }
+        Commands::SwitchToLoginMode { mode } => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy
+                .switch_to_login_mode(mode.to_string().as_str())
+                .await?;
+        }
+        Commands::SetDefaultDesktopSession { session } => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.set_default_desktop_session(session.as_str()).await?;
+        }
+        Commands::GetDefaultDesktopSession => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            let session = proxy.default_desktop_session().await?;
+            println!("{session}");
+        }
+        Commands::SetDefaultLoginMode { mode } => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy
+                .set_default_login_mode(mode.to_string().as_str())
+                .await?;
+        }
+        Commands::GetDefaultLoginMode => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            let mode = proxy.default_login_mode().await?;
+            println!("{mode}");
+        }
+        Commands::GetValidDesktopSessions => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            let sessions = proxy.valid_desktop_sessions().await?;
+            println!("Sessions:\n");
+            for session in sessions.into_iter().sorted() {
+                println!("- {session}");
+            }
+        }
+        Commands::CleanTemporarySessions => {
+            let proxy = SessionManagement1Proxy::new(&conn).await?;
+            proxy.clean_temporary_sessions().await?;
         }
     }
 

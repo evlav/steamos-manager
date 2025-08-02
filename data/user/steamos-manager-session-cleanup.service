@@ -1,0 +1,11 @@
+[Unit]
+Description=SteamOS Manager temporary session cleanup
+Requires=steamos-manager.service
+After=default.target steamos-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/steamosctl clean-temporary-sessions
+
+[Install]
+WantedBy=graphical-session.target

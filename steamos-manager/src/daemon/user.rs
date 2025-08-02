@@ -11,6 +11,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::sync::mpsc::{unbounded_channel, Sender};
+use tokio::sync::oneshot;
 use tracing::subscriber::set_global_default;
 use tracing::{error, info};
 use tracing_subscriber::prelude::*;
@@ -24,6 +25,7 @@ use crate::job::{JobManager, JobManagerService};
 use crate::manager::user::{create_interfaces, SignalRelayService};
 use crate::path;
 use crate::power::TdpManagerService;
+use crate::session::SessionManagerState;
 use crate::udev::UdevMonitor;
 
 #[derive(Copy, Clone, Default, Deserialize, Debug)]
@@ -35,24 +37,32 @@ pub(crate) struct UserConfig {
 #[derive(Copy, Clone, Default, Deserialize, Debug)]
 pub(crate) struct UserServicesConfig {}
 
-#[derive(Copy, Clone, Default, Deserialize, Serialize, Debug)]
+#[derive(Clone, Default, Deserialize, Serialize, Debug)]
 #[serde(default)]
 pub(crate) struct UserState {
     pub services: UserServicesState,
+    pub session_manager: SessionManagerState,
 }
 
-#[derive(Copy, Clone, Default, Deserialize, Serialize, Debug)]
+#[derive(Clone, Default, Deserialize, Serialize, Debug)]
 pub(crate) struct UserServicesState {}
+
+#[derive(Debug)]
+pub(crate) enum UserCommand {
+    SetSessionManagerState(SessionManagerState),
+    GetSessionManagerState(oneshot::Sender<SessionManagerState>),
+}
 
 pub(crate) struct UserContext {
     session: Connection,
     state: UserState,
+    channel: Sender<Command>,
 }
 
 impl DaemonContext for UserContext {
     type State = UserState;
     type Config = UserConfig;
-    type Command = ();
+    type Command = UserCommand;
 
     #[cfg(not(test))]
     fn user_config_path(&self) -> Result<PathBuf> {
@@ -77,10 +87,12 @@ impl DaemonContext for UserContext {
 
     async fn start(
         &mut self,
-        _state: UserState,
+        state: UserState,
         _config: UserConfig,
         daemon: &mut Daemon<UserContext>,
     ) -> Result<()> {
+        self.state = state;
+
         let udev = UdevMonitor::init(&self.session).await?;
         daemon.add_service(udev);
 
@@ -98,15 +110,23 @@ impl DaemonContext for UserContext {
 
     async fn handle_command(
         &mut self,
-        _cmd: Self::Command,
+        cmd: Self::Command,
         _daemon: &mut Daemon<UserContext>,
     ) -> Result<()> {
-        // Nothing to do yet
+        match cmd {
+            UserCommand::SetSessionManagerState(state) => {
+                self.state.session_manager = state;
+                self.channel.send(DaemonCommand::WriteState).await?;
+            }
+            UserCommand::GetSessionManagerState(sender) => {
+                let _ = sender.send(self.state.session_manager.clone());
+            }
+        }
         Ok(())
     }
 }
 
-pub(crate) type Command = DaemonCommand<()>;
+pub(crate) type Command = DaemonCommand<UserCommand>;
 
 async fn create_connections(
     channel: Sender<Command>,
@@ -158,8 +178,8 @@ pub async fn daemon() -> Result<()> {
     set_global_default(subscriber)?;
     let (tx, rx) = channel::<UserContext>();
 
-    let (session, _system, mirror_service, tdp_service, signal_relay_service) =
-        match create_connections(tx).await {
+    let (session, system, mirror_service, tdp_service, signal_relay_service) =
+        match create_connections(tx.clone()).await {
             Ok(c) => c,
             Err(e) => {
                 error!("Error connecting to DBus: {}", e);
@@ -167,11 +187,12 @@ pub async fn daemon() -> Result<()> {
             }
         };
 
+    let mut daemon = Daemon::new(system, rx).await?;
     let context = UserContext {
-        session: session.clone(),
+        session,
         state: UserState::default(),
+        channel: tx,
     };
-    let mut daemon = Daemon::new(session, rx).await?;
 
     daemon.add_service(signal_relay_service);
     daemon.add_service(mirror_service);
