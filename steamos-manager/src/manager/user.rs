@@ -35,6 +35,7 @@ use crate::power::{
     get_gpu_power_profile, get_max_charge_level, get_platform_profile, TdpManagerCommand,
 };
 use crate::screenreader::{OrcaManager, ScreenReaderAction, ScreenReaderMode};
+use crate::session::{is_session_managed, valid_desktop_sessions, LoginMode, SessionManager};
 use crate::wifi::{
     get_wifi_backend, get_wifi_power_management_state, list_wifi_interfaces, WifiBackend,
 };
@@ -163,6 +164,11 @@ struct PerformanceProfile1 {
 
 struct ScreenReader0 {
     screen_reader: OrcaManager<'static>,
+}
+
+struct SessionManagement1 {
+    proxy: Proxy<'static>,
+    manager: SessionManager,
 }
 
 struct Storage1 {
@@ -776,6 +782,74 @@ impl ScreenReader0 {
     }
 }
 
+#[interface(name = "com.steampowered.SteamOSManager1.SessionManagement1")]
+impl SessionManagement1 {
+    #[zbus(property)]
+    async fn default_login_mode(&self) -> fdo::Result<String> {
+        Ok(self
+            .manager
+            .default_login_mode()
+            .await
+            .map_err(to_zbus_fdo_error)?
+            .to_string())
+    }
+
+    #[zbus(property)]
+    async fn set_default_login_mode(&mut self, login_mode: &str) -> fdo::Result<()> {
+        let login_mode = LoginMode::try_from(login_mode).map_err(to_zbus_fdo_error)?;
+        self.manager
+            .set_default_login_mode(login_mode)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    #[zbus(property)]
+    async fn default_desktop_session(&self) -> fdo::Result<String> {
+        self.manager
+            .default_desktop_session()
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    #[zbus(property)]
+    async fn set_default_desktop_session(&mut self, session: &str) -> fdo::Result<()> {
+        self.manager
+            .set_default_desktop_session(session)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn switch_to_login_mode(&self, login_mode: &str) -> fdo::Result<()> {
+        let login_mode = LoginMode::try_from(login_mode).map_err(to_zbus_fdo_error)?;
+        self.manager
+            .switch_to_login_mode(login_mode)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn switch_to_game_mode(&self) -> fdo::Result<()> {
+        self.manager
+            .switch_to_login_mode(LoginMode::Game)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn switch_to_desktop_mode(&self) -> fdo::Result<()> {
+        self.manager
+            .switch_to_login_mode(LoginMode::Desktop)
+            .await
+            .map_err(to_zbus_fdo_error)
+    }
+
+    async fn valid_desktop_sessions(&self) -> fdo::Result<Vec<String>> {
+        valid_desktop_sessions().await.map_err(to_zbus_fdo_error)
+    }
+
+    async fn clean_temporary_sessions(&self) -> fdo::Result<()> {
+        method!(self, "CleanTemporarySessions")
+    }
+}
+
 #[interface(name = "com.steampowered.SteamOSManager1.Storage1")]
 impl Storage1 {
     async fn format_device(
@@ -1140,9 +1214,13 @@ pub(crate) async fn create_interfaces(
     let hdmi_cec = HdmiCec1::new(&session).await?;
     let manager2 = Manager2 {
         proxy: proxy.clone(),
-        channel: daemon,
+        channel: daemon.clone(),
     };
     let screen_reader = ScreenReader0::new(&session).await?;
+    let session_management = SessionManagement1 {
+        proxy: proxy.clone(),
+        manager: SessionManager::new(session.clone(), &system, daemon).await?,
+    };
     let wifi_power_management = WifiPowerManagement1 {
         proxy: proxy.clone(),
     };
@@ -1201,8 +1279,14 @@ pub(crate) async fn create_interfaces(
 
     object_server.at(MANAGER_PATH, manager2).await?;
 
-    if try_exists(path("/usr/bin/orca")).await? {
+    if session_management.manager.current_login_mode().await? == LoginMode::Game
+        && try_exists(path("/usr/bin/orca")).await?
+    {
         object_server.at(MANAGER_PATH, screen_reader).await?;
+    }
+
+    if is_session_managed().await? {
+        object_server.at(MANAGER_PATH, session_management).await?;
     }
 
     if !list_wifi_interfaces().await.unwrap_or_default().is_empty() {
@@ -1218,7 +1302,7 @@ pub(crate) async fn create_interfaces(
 mod test {
     use super::*;
     use crate::daemon::channel;
-    use crate::daemon::user::UserContext;
+    use crate::daemon::user::{UserCommand, UserContext};
     use crate::hardware::test::fake_model;
     use crate::hardware::{
         BatteryChargeLimitConfig, DeviceConfig, DeviceMatch, DmiMatch, PerformanceProfileConfig,
@@ -1228,8 +1312,9 @@ mod test {
         FormatDeviceConfig, PlatformConfig, ResetConfig, ScriptConfig, ServiceConfig, StorageConfig,
     };
     use crate::power::TdpLimitingMethod;
+    use crate::session::{make_managed, SessionManagerState};
     use crate::systemd::test::{MockManager, MockUnit};
-    use crate::{path, power, testing};
+    use crate::{power, testing};
 
     use std::num::NonZeroU32;
     use std::os::unix::fs::PermissionsExt;
@@ -1295,7 +1380,7 @@ mod test {
         device_config: Option<DeviceConfig>,
     ) -> Result<TestHandle> {
         let mut handle = testing::start();
-        let (tx_ctx, _rx_ctx) = channel::<UserContext>();
+        let (tx_ctx, mut rx_ctx) = channel::<UserContext>();
         let (tx_job, rx_job) = unbounded_channel::<JobManagerCommand>();
         let (tx_tdp, rx_tdp) = {
             if device_config
@@ -1343,6 +1428,8 @@ mod test {
         create_dir_all(path("/usr/bin")).await?;
         write(path("/usr/bin/orca"), "").await?;
 
+        make_managed().await?;
+
         handle
             .test
             .process_cb
@@ -1356,6 +1443,18 @@ mod test {
             tx_tdp,
         )
         .await?;
+
+        tokio::spawn(async move {
+            while let Some(command) = rx_ctx.recv().await {
+                match command {
+                    DaemonCommand::ContextCommand(UserCommand::GetSessionManagerState(sender)) => {
+                        _ = sender.send(SessionManagerState::default())
+                    }
+                    _ => (),
+                }
+            }
+            Ok::<_, Error>(())
+        });
 
         sleep(Duration::from_millis(1)).await;
 
@@ -1628,6 +1727,19 @@ mod test {
         assert!(test_interface_matches::<Manager2>(&test.connection)
             .await
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn interface_matches_session_management1() {
+        let test = start(all_platform_config(), all_device_config())
+            .await
+            .expect("start");
+
+        assert!(
+            test_interface_matches::<SessionManagement1>(&test.connection)
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

@@ -411,6 +411,75 @@
   </interface>
 
   <!--
+      com.steampowered.SteamOSManager1.SessionManagement1
+      @short_description: Optional interface for managing the logged in and
+      default sessions.
+  -->
+  <interface name="com.steampowered.SteamOSManager1.SessionManagement1">
+
+    <!--
+      SwitchToDesktopMode:
+
+      Log out and switch to the default desktop mode session
+    -->
+    <method name="SwitchToDesktopMode"/>
+
+    <!--
+      SwitchToGameMode:
+
+      Log out and switch to the game mode session
+    -->
+    <method name="SwitchToGameMode"/>
+
+    <!--
+      SwitchToLoginMode:
+
+      Log out and switch to a given mode.
+
+      @type: The login mode type. Valid values are `game` and `desktop`.
+    -->
+    <method name="SwitchToLoginMode">
+      <arg type="s" name="type" direction="in"/>
+    </method>
+
+    <!--
+      DefaultDesktopSession:
+
+      The name of the default desktop session. Valid values are listed by the
+      ValidDesktopSessions method.
+    -->
+    <property name="DefaultDesktopSession" type="s" access="readwrite"/>
+
+    <!--
+      DefaultLoginMode:
+
+      The default login mode on boot. Valid values are `game` and `desktop`.
+    -->
+    <property name="DefaultLoginMode" type="s" access="readwrite"/>
+
+    <!--
+      ValidDesktopSessions:
+
+      Get a list of valid desktop sessions
+
+      @sessions: A list of desktop session names that can be used for the
+      desktop login mode.
+    -->
+    <method name="ValidDesktopSessions">
+      <arg type="as" name="sessions" direction="out"/>
+    </method>
+
+    <!--
+      CleanTemporarySessions:
+
+      For internal use only. This cleans up any temporary files left over by
+      temporarily switching modes.
+    -->
+    <method name="CleanTemporarySessions"/>
+
+  </interface>
+
+  <!--
       com.steampowered.SteamOSManager1.Storage1
       @short_description: Optional interface for managing storage devices
       and filesystems.
