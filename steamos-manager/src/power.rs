@@ -37,7 +37,11 @@ const HWMON_PREFIX: &str = "/sys/class/hwmon";
 
 const GPU_HWMON_NAME: &str = "amdgpu";
 
-const CPU_PREFIX: &str = "/sys/devices/system/cpu/cpufreq";
+const CPU_PREFIX: &str = "/sys/devices/system/cpu";
+const CPUFREQ_PREFIX: &str = "cpufreq";
+const CPUFREQ_BOOST_SUFFIX: &str = "boost";
+const INTEL_PSTATE_PREFIX: &str = "intel_pstate";
+const INTEL_PSTATE_NO_TURBO_SUFFIX: &str = "no_turbo";
 
 const CPU0_NAME: &str = "policy0";
 const CPU_POLICY_NAME: &str = "policy";
@@ -99,6 +103,12 @@ pub enum CPUScalingGovernor {
     PowerSave,
     Performance,
     SchedUtil,
+}
+
+#[derive(PartialEq, Debug, Copy, Clone)]
+enum CpuBoostDriver {
+    IntelPstate,
+    CpuFreq,
 }
 
 #[derive(Display, EnumString, PartialEq, Debug, Copy, Clone, TryFromPrimitive)]
@@ -281,7 +291,7 @@ async fn write_gpu_sysfs_contents<S: AsRef<Path>>(suffix: S, data: &[u8]) -> Res
 }
 
 async fn read_cpu_sysfs_contents<S: AsRef<Path>>(suffix: S) -> Result<String> {
-    let base = path(CPU_PREFIX).join(CPU0_NAME);
+    let base = path(CPU_PREFIX).join(CPUFREQ_PREFIX).join(CPU0_NAME);
     fs::read_to_string(base.join(suffix.as_ref()))
         .await
         .map_err(|message| anyhow!("Error opening sysfs file for reading {message}"))
@@ -289,7 +299,7 @@ async fn read_cpu_sysfs_contents<S: AsRef<Path>>(suffix: S) -> Result<String> {
 
 async fn write_cpu_governor_sysfs_contents(contents: String) -> Result<()> {
     // Iterate over all policyX paths
-    let mut dir = fs::read_dir(path(CPU_PREFIX)).await?;
+    let mut dir = fs::read_dir(path(CPU_PREFIX).join(CPUFREQ_PREFIX)).await?;
     let mut wrote_stuff = false;
     loop {
         let Some(entry) = dir.next_entry().await? else {
@@ -313,21 +323,6 @@ async fn write_cpu_governor_sysfs_contents(contents: String) -> Result<()> {
             .await
             .inspect_err(|message| error!("Error writing to sysfs file: {message}"))?;
     }
-}
-
-async fn read_cpu_boost_sysfs_contents() -> Result<String> {
-    // Unlike governor, boost has a single global sysfs entry on most frequency scaling drivers
-    let base = path(CPU_PREFIX).join("boost");
-    fs::read_to_string(&base)
-        .await
-        .map_err(|message| anyhow!("Error opening sysfs file for reading {message}"))
-}
-
-async fn write_cpu_boost_sysfs_contents(data: &[u8]) -> Result<()> {
-    let base = path(CPU_PREFIX).join("boost");
-    write_synced(&base, data)
-        .await
-        .inspect_err(|message| error!("Error writing to sysfs file: {message}"))
 }
 
 pub(crate) async fn get_gpu_power_profile() -> Result<GPUPowerProfile> {
@@ -450,24 +445,60 @@ pub(crate) async fn set_cpu_scaling_governor(governor: CPUScalingGovernor) -> Re
     write_cpu_governor_sysfs_contents(name).await
 }
 
+async fn find_cpu_boost_driver() -> Result<(PathBuf, CpuBoostDriver)> {
+    // Try cpufreq path first
+    let cpufreq_path = path(CPU_PREFIX)
+        .join(CPUFREQ_PREFIX)
+        .join(CPUFREQ_BOOST_SUFFIX);
+    if try_exists(&cpufreq_path).await? {
+        return Ok((cpufreq_path, CpuBoostDriver::CpuFreq));
+    }
+
+    // Try intel_pstate path next
+    let intel_pstate_path = path(CPU_PREFIX)
+        .join(INTEL_PSTATE_PREFIX)
+        .join(INTEL_PSTATE_NO_TURBO_SUFFIX);
+    if try_exists(&intel_pstate_path).await? {
+        return Ok((intel_pstate_path, CpuBoostDriver::IntelPstate));
+    }
+
+    bail!("Could not find CPU boost sysfs path");
+}
+
 pub(crate) async fn get_cpu_boost_state() -> Result<CPUBoostState> {
-    let contents = read_cpu_boost_sysfs_contents().await?;
-    let contents = contents.trim();
-    match contents {
-        "1" => Ok(CPUBoostState::Enabled),
-        "0" => Ok(CPUBoostState::Disabled),
-        _ => Err(anyhow!("Invalid CPU boost state: {contents}")),
+    let (path, driver) = find_cpu_boost_driver().await?;
+    let contents = fs::read_to_string(&path)
+        .await
+        .map_err(|message| anyhow!("Error opening CPU boost sysfs file for reading: {message}"))?;
+    match driver {
+        CpuBoostDriver::CpuFreq => match contents.trim() {
+            // cpufreq's boost property is standard
+            // 1 means boost is enabled, 0 means boost is disabled
+            "1" => Ok(CPUBoostState::Enabled),
+            "0" => Ok(CPUBoostState::Disabled),
+            _ => Err(anyhow!("Invalid cpufreq boost state: {contents}")),
+        },
+        CpuBoostDriver::IntelPstate => match contents.trim() {
+            // intel_pstate's no_turbo property is inverted
+            // 0 means boost is enabled, 1 means boost is disabled
+            "0" => Ok(CPUBoostState::Enabled),
+            "1" => Ok(CPUBoostState::Disabled),
+            _ => Err(anyhow!("Invalid intel_pstate boost state: {contents}")),
+        },
     }
 }
 
 pub(crate) async fn set_cpu_boost_state(state: CPUBoostState) -> Result<()> {
-    let contents = match state {
-        CPUBoostState::Enabled => "1",
-        CPUBoostState::Disabled => "0",
+    let (path, driver) = find_cpu_boost_driver().await?;
+    let contents = match (driver, state) {
+        (CpuBoostDriver::CpuFreq, CPUBoostState::Enabled) => "1",
+        (CpuBoostDriver::CpuFreq, CPUBoostState::Disabled) => "0",
+        (CpuBoostDriver::IntelPstate, CPUBoostState::Enabled) => "0",
+        (CpuBoostDriver::IntelPstate, CPUBoostState::Disabled) => "1",
     };
-    write_cpu_boost_sysfs_contents(contents.as_bytes())
+    write_synced(path, contents.as_bytes())
         .await
-        .inspect_err(|message| error!("Error writing to sysfs file: {message}"))
+        .inspect_err(|message| error!("Error writing to CPU boost sysfs file: {message}"))
 }
 
 pub(crate) async fn get_gpu_clocks_range() -> Result<RangeInclusive<u32>> {
@@ -1019,8 +1050,9 @@ pub(crate) mod test {
     pub async fn create_nodes() -> Result<()> {
         setup().await?;
         let base = path(CPU_PREFIX);
-        create_dir_all(&base).await?;
-        write(base.join("boost"), b"1\n").await?;
+        let cpufreq_base = base.join(CPUFREQ_PREFIX);
+        create_dir_all(&cpufreq_base).await?;
+        write(cpufreq_base.join(CPUFREQ_BOOST_SUFFIX), b"1\n").await?;
 
         let base = find_hwmon(GPU_HWMON_NAME).await?;
 
@@ -1618,7 +1650,7 @@ CCLK_RANGE in Core0:
     async fn read_cpu_available_governors() {
         let _h = testing::start();
 
-        let base = path(CPU_PREFIX).join(CPU0_NAME);
+        let base = path(CPU_PREFIX).join(CPUFREQ_PREFIX).join(CPU0_NAME);
         create_dir_all(&base).await.expect("create_dir_all");
 
         let contents = "conservative ondemand userspace powersave performance schedutil";
@@ -1643,7 +1675,7 @@ CCLK_RANGE in Core0:
     async fn read_invalid_cpu_available_governors() {
         let _h = testing::start();
 
-        let base = path(CPU_PREFIX).join(CPU0_NAME);
+        let base = path(CPU_PREFIX).join(CPUFREQ_PREFIX).join(CPU0_NAME);
         create_dir_all(&base).await.expect("create_dir_all");
 
         let contents =
@@ -1669,7 +1701,7 @@ CCLK_RANGE in Core0:
     async fn read_cpu_governor() {
         let _h = testing::start();
 
-        let base = path(CPU_PREFIX).join(CPU0_NAME);
+        let base = path(CPU_PREFIX).join(CPUFREQ_PREFIX).join(CPU0_NAME);
         create_dir_all(&base).await.expect("create_dir_all");
 
         let contents = "ondemand\n";
@@ -1687,7 +1719,7 @@ CCLK_RANGE in Core0:
     async fn read_invalid_cpu_governor() {
         let _h = testing::start();
 
-        let base = path(CPU_PREFIX).join(CPU0_NAME);
+        let base = path(CPU_PREFIX).join(CPUFREQ_PREFIX).join(CPU0_NAME);
         create_dir_all(&base).await.expect("create_dir_all");
 
         let contents = "rescascade\n";
@@ -1699,16 +1731,19 @@ CCLK_RANGE in Core0:
     }
 
     #[tokio::test]
-    async fn read_cpu_boost_state() {
+    async fn read_cpu_boost_state_cpufreq() {
         let _h = testing::start();
 
-        let base = path(CPU_PREFIX);
-        create_dir_all(&base).await.expect("create_dir_all");
+        let base = path(CPU_PREFIX).join(CPUFREQ_PREFIX);
+        let boost_path = base.join(CPUFREQ_BOOST_SUFFIX);
+        create_dir_all(boost_path.parent().unwrap())
+            .await
+            .expect("create_dir_all");
 
-        write(base.join("boost"), b"1\n").await.expect("write");
+        write(&boost_path, b"1\n").await.expect("write");
         assert_eq!(get_cpu_boost_state().await.unwrap(), CPUBoostState::Enabled);
 
-        write(base.join("boost"), b"0\n").await.expect("write");
+        write(&boost_path, b"0\n").await.expect("write");
         assert_eq!(
             get_cpu_boost_state().await.unwrap(),
             CPUBoostState::Disabled
@@ -1716,16 +1751,58 @@ CCLK_RANGE in Core0:
     }
 
     #[tokio::test]
-    async fn read_invalid_cpu_boost_state() {
+    async fn read_invalid_cpu_boost_state_cpufreq() {
         let _h = testing::start();
 
-        let base = path(CPU_PREFIX);
-        create_dir_all(&base).await.expect("create_dir_all");
+        let base = path(CPU_PREFIX).join(CPUFREQ_PREFIX);
+        let boost_path = base.join(CPUFREQ_BOOST_SUFFIX);
+        create_dir_all(boost_path.parent().unwrap())
+            .await
+            .expect("create_dir_all");
 
-        write(base.join("boost"), b"2\n").await.expect("write");
+        write(&boost_path, b"2\n").await.expect("write");
         assert!(get_cpu_boost_state().await.is_err());
 
-        tokio::fs::remove_file(base.join("boost"))
+        tokio::fs::remove_file(&boost_path)
+            .await
+            .expect("remove_file");
+        assert!(get_cpu_boost_state().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn read_cpu_boost_state_intel_pstate() {
+        let _h = testing::start();
+
+        let base = path(CPU_PREFIX).join(INTEL_PSTATE_PREFIX);
+        let no_turbo_path = base.join(INTEL_PSTATE_NO_TURBO_SUFFIX);
+        create_dir_all(no_turbo_path.parent().unwrap())
+            .await
+            .expect("create_dir_all");
+
+        write(&no_turbo_path, b"0\n").await.expect("write");
+        assert_eq!(get_cpu_boost_state().await.unwrap(), CPUBoostState::Enabled);
+
+        write(&no_turbo_path, b"1\n").await.expect("write");
+        assert_eq!(
+            get_cpu_boost_state().await.unwrap(),
+            CPUBoostState::Disabled
+        );
+    }
+
+    #[tokio::test]
+    async fn read_invalid_cpu_boost_state_intel_pstate() {
+        let _h = testing::start();
+
+        let base = path(CPU_PREFIX).join(INTEL_PSTATE_PREFIX);
+        let no_turbo_path = base.join(INTEL_PSTATE_NO_TURBO_SUFFIX);
+        create_dir_all(no_turbo_path.parent().unwrap())
+            .await
+            .expect("create_dir_all");
+
+        write(&no_turbo_path, b"2\n").await.expect("write");
+        assert!(get_cpu_boost_state().await.is_err());
+
+        tokio::fs::remove_file(&no_turbo_path)
             .await
             .expect("remove_file");
         assert!(get_cpu_boost_state().await.is_err());
