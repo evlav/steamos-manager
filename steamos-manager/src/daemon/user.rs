@@ -155,18 +155,17 @@ pub async fn daemon() -> Result<()> {
     let subscriber = Registry::default()
         .with(stdout_log)
         .with(EnvFilter::from_default_env());
+    set_global_default(subscriber)?;
     let (tx, rx) = channel::<UserContext>();
 
     let (session, _system, mirror_service, tdp_service, signal_relay_service) =
         match create_connections(tx).await {
             Ok(c) => c,
             Err(e) => {
-                let _guard = tracing::subscriber::set_default(subscriber);
                 error!("Error connecting to DBus: {}", e);
                 bail!(e);
             }
         };
-    set_global_default(subscriber)?;
 
     let context = UserContext {
         session: session.clone(),
