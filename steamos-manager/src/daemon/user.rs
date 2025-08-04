@@ -178,7 +178,7 @@ pub async fn daemon() -> Result<()> {
     set_global_default(subscriber)?;
     let (tx, rx) = channel::<UserContext>();
 
-    let (session, system, mirror_service, tdp_service, signal_relay_service) =
+    let (session, _system, mirror_service, tdp_service, signal_relay_service) =
         match create_connections(tx.clone()).await {
             Ok(c) => c,
             Err(e) => {
@@ -187,7 +187,7 @@ pub async fn daemon() -> Result<()> {
             }
         };
 
-    let mut daemon = Daemon::new(system, rx).await?;
+    let mut daemon = Daemon::new(session.clone(), rx).await?;
     let context = UserContext {
         session,
         state: UserState::default(),
