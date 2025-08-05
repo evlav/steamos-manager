@@ -6,34 +6,6 @@ variant = "83E1"
 
 [[device]]
 dmi.sys_vendor = "LENOVO"
-dmi.product_name = "83L3"
-# Legion Go S 8ARP1 - Z2 Go SKU1
-device = "legion_go_s"
-variant = "83L3"
-
-[[device]]
-dmi.sys_vendor = "LENOVO"
-dmi.product_name = "83N6"
-# Legion Go S 8APU1 - Z1E SKU1
-device = "legion_go_s"
-variant = "83N6"
-
-[[device]]
-dmi.sys_vendor = "LENOVO"
-dmi.product_name = "83Q2"
-# Legion Go S 8ARP1 - Z2 Go SKU2
-device = "legion_go_s"
-variant = "83Q2"
-
-[[device]]
-dmi.sys_vendor = "LENOVO"
-dmi.product_name = "83Q3"
-# Legion Go S 8APU1 - Z1E SKU2
-device = "legion_go_s"
-variant = "83Q3"
-
-[[device]]
-dmi.sys_vendor = "LENOVO"
 dmi.product_name = "83N0"
 # Legion Go 8ASP2 - Z2E SKU
 device = "legion_go_2"
@@ -62,3 +34,6 @@ method = "firmware_attribute"
 [tdp_limit.firmware_attribute]
 attribute = "lenovo-wmi-other-0"
 performance_profile = "custom"
+
+[inputplumber]
+target_devices = ["deck-uhid", "keyboard", "mouse"]
