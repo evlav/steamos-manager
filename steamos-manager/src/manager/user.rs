@@ -1398,6 +1398,7 @@ mod test {
                 platform_profile_name: String::from("power-driver"),
                 suggested_default: String::from("balanced"),
             }),
+            inputplumber: None,
         })
     }
 

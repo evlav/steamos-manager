@@ -15,6 +15,7 @@ use zbus::proxy::CacheProperties;
 use zbus::zvariant::ObjectPath;
 use zbus::Connection;
 
+use crate::hardware::{device_config, InputPlumberTargetDevice};
 use crate::Service;
 
 #[zbus::proxy(
@@ -85,7 +86,7 @@ impl DeckService {
             .path(targets[0].as_str())?
             .build()
             .await?;
-        Ok(target.device_type().await? == "deck-uhid")
+        Ok(target.device_type().await? == InputPlumberTargetDevice::DeckUhid.as_ref())
     }
 
     async fn make_deck(&self, path: &ObjectPath<'_>) -> Result<()> {
@@ -101,8 +102,19 @@ impl DeckService {
             .build()
             .await?;
         if !self.is_deck(&proxy).await? {
-            debug!("Changing CompositeDevice {} into `deck-uhid` type", path);
-            proxy.set_target_devices(&["deck-uhid"]).await
+            let config = device_config().await?;
+            let targets = config
+                .as_ref()
+                .and_then(|c| c.inputplumber.as_ref())
+                .map(|ip| ip.target_devices.as_slice())
+                .unwrap_or(&[InputPlumberTargetDevice::DeckUhid]);
+            let new_targets: Vec<&str> = targets.iter().map(|t| t.as_ref()).collect();
+
+            debug!(
+                "Changing CompositeDevice {} into {:?} type",
+                path, new_targets
+            );
+            proxy.set_target_devices(&new_targets).await
         } else {
             debug!("CompositeDevice {} is already `deck-uhid` type", path);
             Ok(())

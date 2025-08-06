@@ -64,6 +64,15 @@ pub enum FactoryResetKind {
     All = 3,
 }
 
+#[derive(Display, EnumString, strum::AsRefStr, Deserialize, Debug, Clone, PartialEq, Copy)]
+#[strum(serialize_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum InputPlumberTargetDevice {
+    DeckUhid,
+    Keyboard,
+    Mouse,
+}
+
 #[derive(Clone, Default, Deserialize, Debug)]
 #[serde(default)]
 pub(crate) struct DeviceConfig {
@@ -73,6 +82,7 @@ pub(crate) struct DeviceConfig {
     pub gpu_power_profile: Option<GpuPowerProfileConfig>,
     pub battery_charge_limit: Option<BatteryChargeLimitConfig>,
     pub performance_profile: Option<PerformanceProfileConfig>,
+    pub inputplumber: Option<InputPlumberConfig>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -111,6 +121,12 @@ pub(crate) struct GpuPerformanceConfig {
 #[derive(Clone, Deserialize, Debug)]
 pub(crate) struct GpuPowerProfileConfig {
     pub driver: GpuPowerProfileDriverType,
+}
+
+#[derive(Clone, Deserialize, Debug, Default)]
+#[serde(default)]
+pub(crate) struct InputPlumberConfig {
+    pub target_devices: Vec<InputPlumberTargetDevice>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
